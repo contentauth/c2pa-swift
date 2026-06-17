@@ -158,22 +158,124 @@ public final class SigningTests: TestImplementation {
     }
 
 
-    public func testSignerWithTimestampAuthority() -> TestResult {
-        let tsa = URL(string: "http://timestamp.digecert.com")
+    /// End-to-end check that a TSA-configured signer embeds an RFC 3161
+    /// timestamp token (`sigTst`/`sigTst2`) in the COSE_Sign1 unprotected header.
+    /// Reproduces contentauth/c2pa-swift#109. Skips (does not fail) when offline.
+    public func testTimestampTokenEmbedded() async -> TestResult {
+        let name = "Timestamp Token Embedded"
+        // freetsa.org serves RFC 3161 over HTTPS, so the built-in (rustls) client
+        // path is exercised without iOS ATS friction. Do not swap to an http://
+        // TSA (e.g. DigiCert) without revisiting ATS — see GP-195 spec.
+        let tsaURLString = "https://freetsa.org/tsr"
+        guard let tsaURL = URL(string: tsaURLString) else {
+            return .failure(name, "Invalid TSA URL: \(tsaURLString)")
+        }
+
+        // Skip (neutral) rather than fail when the TSA host is unreachable.
+        guard await Self.isReachable(tsaURL) else {
+            return .skipped(name, "Network required: TSA \(tsaURLString) unreachable")
+        }
+
+        guard let imageData = TestUtilities.loadPexelsTestImage() else {
+            return .failure(name, "Could not load test image")
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceFile = tempDir.appendingPathComponent("tsa_src_\(UUID().uuidString).jpg")
+        let destFile = tempDir.appendingPathComponent("tsa_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceFile)
+            try? FileManager.default.removeItem(at: destFile)
+        }
 
         do {
             let signer = try Signer(
                 certsPEM: TestUtilities.testCertsPEM,
                 privateKeyPEM: TestUtilities.testPrivateKeyPEM,
                 algorithm: .es256,
-                tsa: tsa
+                tsa: tsaURL
             )
-            _ = signer
-            return .success("Signer With TSA", "[PASS] Created signer with TSA URL")
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+
+            try imageData.write(to: sourceFile)
+            let sourceStream = try Stream(readFrom: sourceFile)
+            let destStream = try Stream(writeTo: destFile)
+
+            let manifestData = try builder.sign(
+                format: "image/jpeg",
+                source: sourceStream,
+                destination: destStream,
+                signer: signer
+            )
+
+            // Primary (structural): CBOR encodes "sigTst" as a length-prefix byte
+            // followed by its UTF-8 bytes; scanning for the UTF-8 sequence is a
+            // reliable heuristic (collision with unrelated content is negligible)
+            // and matches "sigTst2" by prefix too.
+            let hasSigTst = manifestData.range(of: Data("sigTst".utf8)) != nil
+
+            // Secondary (semantic): signature_info.time populated on readback,
+            // proving the embedded token validated. Surface the readback outcome
+            // so a failed readback is distinguishable from an absent time field.
+            var timeNote = "readback failed"
+            if let readStream = try? Stream(readFrom: destFile),
+                let reader = try? Reader(format: "image/jpeg", stream: readStream),
+                let json = try? reader.json(),
+                let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] {
+                timeNote = "signature_info.time present: \(Self.signatureTimePresent(in: obj))"
+            }
+
+            if hasSigTst {
+                return .success(name, "[PASS] sigTst embedded (\(timeNote))")
+            } else {
+                return .failure(
+                    name,
+                    "[BUG #109] Signed OK but no sigTst in COSE header (\(timeNote))")
+            }
         } catch {
-            // Certificate or TSA errors are failures, not successes
-            return .failure("Signer With TSA", "Failed to create signer with TSA: \(error)")
+            // Network or TSA error during signing. If this is a flaky network
+            // failure, re-running will skip via the reachability guard.
+            return .failure(name, "Signing with TSA threw: \(error)")
         }
+    }
+
+    /// True if the host of `url` answers at the transport level. Probes the host
+    /// root with HEAD (rather than the TSA path with GET) to prove TCP+TLS
+    /// reachability without invoking the TSA request handler. HTTP error statuses
+    /// still count as reachable; only transport failures return false. Uses a
+    /// continuation-wrapped dataTask for macOS 11 compatibility.
+    private static func isReachable(_ url: URL) async -> Bool {
+        guard let host = url.host,
+            let probeURL = URL(string: "\(url.scheme ?? "https")://\(host)/")
+        else { return false }
+        return await withCheckedContinuation { continuation in
+            var request = URLRequest(url: probeURL)
+            request.httpMethod = "HEAD"
+            request.timeoutInterval = 10
+            let task = URLSession.shared.dataTask(with: request) { _, _, error in
+                continuation.resume(returning: error == nil)
+            }
+            task.resume()
+        }
+    }
+
+    /// Navigates reader JSON to the active manifest's signature_info.time and
+    /// returns true when it is a non-empty string.
+    private static func signatureTimePresent(in obj: [String: Any]) -> Bool {
+        guard let manifests = obj["manifests"] as? [String: Any] else { return false }
+        let manifest: [String: Any]?
+        if let active = obj["active_manifest"] as? String,
+            let m = manifests[active] as? [String: Any] {
+            manifest = m
+        } else {
+            manifest = manifests.values.compactMap { $0 as? [String: Any] }.first
+        }
+        guard let m = manifest,
+            let signatureInfo = m["signature_info"] as? [String: Any],
+            let time = signatureInfo["time"] as? String,
+            time.isEmpty == false
+        else { return false }
+        return true
     }
 
     public func testWebServiceSignerCreation() async -> TestResult {
@@ -726,7 +828,7 @@ public final class SigningTests: TestImplementation {
             testSignerCreation(),
             testSignerWithCallback(),
             testSigningAlgorithms(),
-            testSignerWithTimestampAuthority(),
+            await testTimestampTokenEmbedded(),
             await testWebServiceSignerCreation(),
             testSignerWithActualSigning(),
             testSignerFromSettingsTOML(),

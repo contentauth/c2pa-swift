@@ -306,9 +306,9 @@ final class SigningTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testSignerWithTimestampAuthority() throws {
-        let result = tests.testSignerWithTimestampAuthority()
-        XCTAssertTrue(result.passed, result.message)
+    func testTimestampTokenEmbedded() async throws {
+        let result = await tests.testTimestampTokenEmbedded()
+        try assertTestResult(result)
     }
 
     func testWebServiceSignerCreation() async throws {
