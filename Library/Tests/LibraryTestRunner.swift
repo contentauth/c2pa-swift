@@ -1072,6 +1072,21 @@ final class ContextTests: XCTestCase {
         let result = tests.testContextWithSettingsAndCallbacks()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testCreatedAssertionLabelsFromSettings() throws {
+        let result = tests.testCreatedAssertionLabelsFromSettings()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testCreatedAssertionLabelsWithCallbackSigner() throws {
+        let result = tests.testCreatedAssertionLabelsWithCallbackSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testCreatedAssertionLabelsWithWebServiceSigner() throws {
+        let result = tests.testCreatedAssertionLabelsWithWebServiceSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Settings Definition Tests

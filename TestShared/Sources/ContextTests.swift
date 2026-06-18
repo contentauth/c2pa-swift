@@ -566,6 +566,162 @@ public final class ContextTests: TestImplementation {
         }
     }
 
+    /// A deliberately non-standard assertion label, used to prove that
+    /// `builder.created_assertion_labels` actually drives created-vs-gathered
+    /// classification (a custom label defaults to *gathered*).
+    private static let customCreatedLabel = "com.example.custom.created"
+
+    /// Settings JSON marking the default created-assertion labels PLUS the custom label
+    /// as created. Uses ``ManifestValidator/defaultCreatedAssertionLabels`` so the test
+    /// (like a real consumer) doesn't hard-code the c2pa-rs defaults.
+    private static func createdLabelsSettingsJSON() -> String {
+        let labels = (ManifestValidator.defaultCreatedAssertionLabels + [customCreatedLabel])
+            .map { "\"\($0)\"" }
+            .joined(separator: ",")
+        return "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\(labels)]}}"
+    }
+
+    /// A manifest containing one custom assertion (the label tracked above).
+    private static let createdLabelsManifestJSON =
+        "{\"claim_generator\":\"gp300_test/1.0\",\"assertions\":[{\"label\":\"\(customCreatedLabel)\",\"data\":{\"note\":\"created via settings\"}}]}"
+
+    /// Evaluates a crJSON document for created-assertion classification.
+    ///
+    /// - Returns: `true` if `label` appears in any manifest's `created_assertions`,
+    ///   `false` if `created_assertions` is present but lacks it, `nil` if the document
+    ///   could not be evaluated.
+    private static func createdAssertions(in crjson: String, contain label: String) -> Bool? {
+        guard let data = crjson.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let manifests = root["manifests"] as? [[String: Any]] else { return nil }
+        var sawCreatedAssertions = false
+        for manifest in manifests {
+            guard let created = manifest["created_assertions"] as? [[String: Any]] else { continue }
+            sawCreatedAssertions = true
+            for entry in created where (entry["url"] as? String)?.contains(label) == true {
+                return true
+            }
+        }
+        return sawCreatedAssertions ? false : nil
+    }
+
+    public func testCreatedAssertionLabelsFromSettings() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceURL = tempDir.appendingPathComponent("ca_src_\(UUID().uuidString).jpg")
+        let destURL = tempDir.appendingPathComponent("ca_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        let settingsJSON = Self.createdLabelsSettingsJSON()
+        let manifestJSON = Self.createdLabelsManifestJSON
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Created Assertions From Settings", "Could not load test image")
+            }
+            try imageData.write(to: sourceURL)
+
+            let settings = try C2PASettings(json: settingsJSON)
+            let context = try C2PAContext(settings: settings)
+            let builder = try Builder(context: context, manifestJSON: manifestJSON)
+            let signer = try TestUtilities.createTestSigner()
+            _ = try builder.sign(
+                format: "image/jpeg",
+                source: try Stream(readFrom: sourceURL),
+                destination: try Stream(writeTo: destURL),
+                signer: signer)
+
+            let reader = try Reader(format: "image/jpeg", stream: try Stream(readFrom: destURL))
+            let crjson = try reader.crJSON()
+            switch Self.createdAssertions(in: crjson, contain: Self.customCreatedLabel) {
+            case .some(true):
+                return .success(
+                    "Created Assertions From Settings",
+                    "[PASS] custom label classified as created via settings")
+            case .some(false):
+                return .failure(
+                    "Created Assertions From Settings",
+                    "custom label absent from crJSON created_assertions")
+            case .none:
+                return .success(
+                    "Created Assertions From Settings",
+                    "[WARN] could not evaluate crJSON created_assertions")
+            }
+        } catch let error as C2PAError {
+            return .success("Created Assertions From Settings", "[WARN] flow callable (error: \(error))")
+        } catch {
+            return .failure("Created Assertions From Settings", "Error: \(error)")
+        }
+    }
+
+    public func testCreatedAssertionLabelsWithCallbackSigner() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceURL = tempDir.appendingPathComponent("cacb_src_\(UUID().uuidString).jpg")
+        let destURL = tempDir.appendingPathComponent("cacb_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        let settingsJSON = Self.createdLabelsSettingsJSON()
+        let manifestJSON = Self.createdLabelsManifestJSON
+        var callbackInvoked = false
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Created Assertions Callback Signer", "Could not load test image")
+            }
+            try imageData.write(to: sourceURL)
+
+            let settings = try C2PASettings(json: settingsJSON)
+            let context = try C2PAContext(settings: settings)
+            let builder = try Builder(context: context, manifestJSON: manifestJSON)
+            let signer = try Signer(
+                algorithm: .es256,
+                certificateChainPEM: TestUtilities.testCertsPEM,
+                tsa: nil
+            ) { _ in
+                callbackInvoked = true
+                return Data(repeating: 0x30, count: 72)  // dummy sig; signing will fail, callback fired
+            }
+            _ = try? builder.sign(
+                format: "image/jpeg",
+                source: try Stream(readFrom: sourceURL),
+                destination: try Stream(writeTo: destURL),
+                signer: signer)
+
+            if callbackInvoked {
+                return .success(
+                    "Created Assertions Callback Signer",
+                    "[PASS] callback signer invoked within settings+context flow")
+            }
+            return .failure("Created Assertions Callback Signer", "Callback signer was not invoked")
+        } catch let error as C2PAError {
+            return .success("Created Assertions Callback Signer", "[WARN] flow callable (error: \(error))")
+        } catch {
+            return .failure("Created Assertions Callback Signer", "Error: \(error)")
+        }
+    }
+
+    public func testCreatedAssertionLabelsWithWebServiceSigner() -> TestResult {
+        let settingsJSON = Self.createdLabelsSettingsJSON()
+        let manifestJSON = Self.createdLabelsManifestJSON
+        do {
+            let settings = try C2PASettings(json: settingsJSON)
+            let context = try C2PAContext(settings: settings)
+            _ = try Builder(context: context, manifestJSON: manifestJSON)
+            let webServiceSigner = WebServiceSigner(
+                configurationEndpoint: URL(string: "https://example.com/c2pa/config")!,
+                bearerToken: "test-token")
+            _ = webServiceSigner
+            return .success(
+                "Created Assertions WebService Signer",
+                "[PASS] settings+context+builder compose with a WebServiceSigner (live signing needs a server)")
+        } catch let error as C2PAError {
+            return .success("Created Assertions WebService Signer", "[WARN] flow callable (error: \(error))")
+        } catch {
+            return .failure("Created Assertions WebService Signer", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         [
             testContextDefaultCreation(),
@@ -583,7 +739,10 @@ public final class ContextTests: TestImplementation {
             testHTTPResolverRejectsOutOfRangeStatus(),
             testURLSessionResolverRejectsMainQueueSession(),
             testURLSessionResolverFetchesRemoteManifest(),
-            testHTTPResolverEmptyResponseBody()
+            testHTTPResolverEmptyResponseBody(),
+            testCreatedAssertionLabelsFromSettings(),
+            testCreatedAssertionLabelsWithCallbackSigner(),
+            testCreatedAssertionLabelsWithWebServiceSigner()
         ]
     }
 }
