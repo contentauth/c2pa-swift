@@ -121,7 +121,7 @@ final class C2PAManager: ObservableObject {
                 os_log("Starting C2PA verification of saved file...", log: Logger.verification, type: .info)
                 do {
                     // Read the file back and verify C2PA credentials
-                    let manifestJSON = try C2PA.readFile(at: savedURL, dataDir: nil)
+                    let manifestJSON = try C2PA.readFile(at: savedURL)
 
                     os_log("C2PA VERIFICATION SUCCESS", log: Logger.verification, type: .info)
                     os_log("Manifest JSON loaded successfully", log: Logger.verification, type: .info)

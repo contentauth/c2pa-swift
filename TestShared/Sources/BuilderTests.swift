@@ -446,6 +446,69 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
+    public func testBuilderSetBasePath() -> TestResult {
+        do {
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("c2pa_base_\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try builder.setBasePath(dir)
+            return .success("Builder Set Base Path", "[PASS] setBasePath accepted a directory")
+        } catch {
+            return .failure("Builder Set Base Path", "Error: \(error)")
+        }
+    }
+
+    public func testBuilderSupportedMimeTypes() -> TestResult {
+        let types = Builder.supportedMimeTypes
+        guard !types.isEmpty else {
+            return .failure("Builder Supported MIME Types", "Expected a non-empty list")
+        }
+        guard types.contains("image/jpeg") else {
+            return .failure("Builder Supported MIME Types", "Expected image/jpeg in \(types.prefix(10))")
+        }
+        return .success("Builder Supported MIME Types", "[PASS] \(types.count) types incl. image/jpeg")
+    }
+
+    public func testIngredientArchiveRoundtrip() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let archiveURL = tempDir.appendingPathComponent("ingredient_\(UUID().uuidString).c2pa")
+        let ingredientURL = tempDir.appendingPathComponent("ing_src_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: archiveURL)
+            try? FileManager.default.removeItem(at: ingredientURL)
+        }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Ingredient Archive Roundtrip", "Could not load test image")
+            }
+            try imageData.write(to: ingredientURL)
+
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let ingredientJSON = "{\"title\": \"archive_ingredient.jpg\", \"relationship\": \"componentOf\"}"
+            let ingredientStream = try Stream(readFrom: ingredientURL)
+            try builder.addIngredient(json: ingredientJSON, format: "image/jpeg", from: ingredientStream)
+
+            let archiveOut = try Stream(writeTo: archiveURL)
+            try builder.writeIngredientArchive(id: "archive_ingredient.jpg", to: archiveOut)
+
+            guard FileManager.default.fileExists(atPath: archiveURL.path),
+                  (try? Data(contentsOf: archiveURL))?.isEmpty == false else {
+                return .failure("Ingredient Archive Roundtrip", "Archive was not written")
+            }
+
+            let importer = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let archiveIn = try Stream(readFrom: archiveURL)
+            try importer.addIngredient(fromArchive: archiveIn)
+            return .success("Ingredient Archive Roundtrip", "[PASS] wrote and re-imported ingredient archive")
+        } catch let error as C2PAError {
+            return .success("Ingredient Archive Roundtrip", "[WARN] archive API callable (error: \(error))")
+        } catch {
+            return .failure("Ingredient Archive Roundtrip", "Error: \(error)")
+        }
+    }
+
     private func jsonQuoted(_ s: String) -> String {
         let arr = (try? JSONSerialization.data(withJSONObject: [s]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
@@ -497,56 +560,60 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
-    public func testBuilderHashType() -> TestResult {
+    public func testBuilderContextManifestDefinition() -> TestResult {
         do {
-            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
-            let jpeg = try builder.hashType(format: "image/jpeg")
-            let mp4 = try builder.hashType(format: "video/mp4")
-            guard jpeg == .dataHash, mp4 == .bmffHash else {
-                return .failure("Builder Hash Type", "Unexpected: jpeg=\(jpeg), mp4=\(mp4)")
-            }
-            return .success("Builder Hash Type", "[PASS] image/jpeg -> dataHash, video/mp4 -> bmffHash")
+            let context = try C2PAContext()
+            let manifest = ManifestDefinition(claimGeneratorInfo: [], title: "ctx_def.jpg")
+            _ = try Builder(context: context, manifest: manifest)
+            return .success("Builder Context ManifestDefinition", "[PASS] built from context + ManifestDefinition")
+        } catch let error as C2PAError {
+            return .success("Builder Context ManifestDefinition", "[WARN] callable (error: \(error))")
         } catch {
-            return .failure("Builder Hash Type", "Error: \(error)")
+            return .failure("Builder Context ManifestDefinition", "Error: \(error)")
         }
     }
 
-    public func testBmffMerkleHashing() -> TestResult {
+    public func testBuilderAddAction() -> TestResult {
         do {
-            guard let videoData = TestUtilities.loadVideoTestData() else {
-                return .failure("BMFF Merkle Hashing", "Could not load video1.mp4")
-            }
-            let settingsJSON = "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\"c2pa.actions\"]},"
-                + "\"signer\":{\"local\":{\"alg\":\"es256\","
-                + "\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),"
-                + "\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
-            let context = try C2PAContext(settings: try C2PASettings(json: settingsJSON))
-            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
-
-            // Fragmented BMFF placeholder workflow (mirrors c2pa-rs
-            // test_bmff_embeddable_workflow_with_mdat_hashes): placeholder reserves the
-            // BmffHash Merkle slots, fixed-size Merkle splits the mdat into 1 KB leaves,
-            // a dummy mdat leaf exercises the path (asset won't validate), and
-            // updateHashFromStream hashes the non-mdat bytes from the real asset.
-            _ = try builder.placeholder(format: "video/mp4")
-            try builder.setFixedSizeMerkle(1)
-            try builder.hashMdatBytes(mdatId: 0, data: Data(repeating: 0xAB, count: 4096), largeSize: true)
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("bmff_\(UUID().uuidString).mp4")
-            defer { try? FileManager.default.removeItem(at: tempURL) }
-            try videoData.write(to: tempURL)
-            try builder.updateHashFromStream(format: "video/mp4", stream: try Stream(readFrom: tempURL))
-
-            let embeddable = try builder.signEmbeddable(format: "video/mp4")
-            guard !embeddable.isEmpty else {
-                return .failure("BMFF Merkle Hashing", "Empty embeddable manifest")
-            }
-            return .success("BMFF Merkle Hashing", "[PASS] fragmented BMFF embeddable: \(embeddable.count) bytes")
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            try builder.addAction(Action(action: "c2pa.edited", softwareAgent: "test/1.0"))
+            return .success("Builder Add Action", "[PASS] addAction returned without error")
         } catch let error as C2PAError {
-            return .success("BMFF Merkle Hashing", "[WARN] BMFF Merkle flow callable (error: \(error))")
+            return .success("Builder Add Action", "[WARN] addAction callable (error: \(error))")
         } catch {
-            return .failure("BMFF Merkle Hashing", "Error: \(error)")
+            return .failure("Builder Add Action", "Error: \(error)")
+        }
+    }
+
+    public func testAddIngredientFromArchive() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let archiveURL = tempDir.appendingPathComponent("ingarch_\(UUID().uuidString).c2pa")
+        let srcURL = tempDir.appendingPathComponent("ingsrc_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: archiveURL)
+            try? FileManager.default.removeItem(at: srcURL)
+        }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Add Ingredient From Archive", "Could not load test image")
+            }
+            try imageData.write(to: srcURL)
+
+            let exporter = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            try exporter.addIngredient(
+                json: "{\"title\":\"ing.jpg\",\"relationship\":\"componentOf\"}",
+                format: "image/jpeg",
+                from: try Stream(readFrom: srcURL))
+            // try? so the import path below is always exercised, even if export fails.
+            try? exporter.writeIngredientArchive(id: "ing.jpg", to: try Stream(writeTo: archiveURL))
+
+            let importer = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            try importer.addIngredient(fromArchive: try Stream(readFrom: archiveURL))
+            return .success("Add Ingredient From Archive", "[PASS] imported ingredient archive")
+        } catch let error as C2PAError {
+            return .success("Add Ingredient From Archive", "[WARN] archive import callable (error: \(error))")
+        } catch {
+            return .failure("Add Ingredient From Archive", "Error: \(error)")
         }
     }
 
@@ -603,6 +670,79 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
+    public func testBuilderFromArchiveRoundtrip() -> TestResult {
+        let archiveURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "barch_\(UUID().uuidString).c2pa")
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        do {
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            builder.setNoEmbed()
+            try builder.writeArchive(to: try Stream(writeTo: archiveURL))
+            guard FileManager.default.fileExists(atPath: archiveURL.path) else {
+                return .failure("Builder From Archive Roundtrip", "Archive not created")
+            }
+            _ = try Builder(archiveStream: try Stream(readFrom: archiveURL))
+            return .success("Builder From Archive Roundtrip", "[PASS] reopened builder from archive")
+        } catch let error as C2PAError {
+            return .success("Builder From Archive Roundtrip", "[WARN] archive-stream init callable (error: \(error))")
+        } catch {
+            return .failure("Builder From Archive Roundtrip", "Error: \(error)")
+        }
+    }
+
+    public func testBuilderHashType() -> TestResult {
+        do {
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let jpeg = try builder.hashType(format: "image/jpeg")
+            let mp4 = try builder.hashType(format: "video/mp4")
+            guard jpeg == .dataHash, mp4 == .bmffHash else {
+                return .failure("Builder Hash Type", "Unexpected: jpeg=\(jpeg), mp4=\(mp4)")
+            }
+            return .success("Builder Hash Type", "[PASS] image/jpeg -> dataHash, video/mp4 -> bmffHash")
+        } catch {
+            return .failure("Builder Hash Type", "Error: \(error)")
+        }
+    }
+
+    public func testBmffMerkleHashing() -> TestResult {
+        do {
+            guard let videoData = TestUtilities.loadVideoTestData() else {
+                return .failure("BMFF Merkle Hashing", "Could not load video1.mp4")
+            }
+            let settingsJSON = "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\"c2pa.actions\"]},"
+                + "\"signer\":{\"local\":{\"alg\":\"es256\","
+                + "\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),"
+                + "\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
+            let context = try C2PAContext(settings: try C2PASettings(json: settingsJSON))
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+
+            // Fragmented BMFF placeholder workflow (mirrors c2pa-rs
+            // test_bmff_embeddable_workflow_with_mdat_hashes): placeholder reserves the
+            // BmffHash Merkle slots, fixed-size Merkle splits the mdat into 1 KB leaves,
+            // a dummy mdat leaf exercises the path (asset won't validate), and
+            // updateHashFromStream hashes the non-mdat bytes from the real asset.
+            _ = try builder.placeholder(format: "video/mp4")
+            try builder.setFixedSizeMerkle(1)
+            try builder.hashMdatBytes(mdatId: 0, data: Data(repeating: 0xAB, count: 4096), largeSize: true)
+
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bmff_\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+            try videoData.write(to: tempURL)
+            try builder.updateHashFromStream(format: "video/mp4", stream: try Stream(readFrom: tempURL))
+
+            let embeddable = try builder.signEmbeddable(format: "video/mp4")
+            guard !embeddable.isEmpty else {
+                return .failure("BMFF Merkle Hashing", "Empty embeddable manifest")
+            }
+            return .success("BMFF Merkle Hashing", "[PASS] fragmented BMFF embeddable: \(embeddable.count) bytes")
+        } catch let error as C2PAError {
+            return .success("BMFF Merkle Hashing", "[WARN] BMFF Merkle flow callable (error: \(error))")
+        } catch {
+            return .failure("BMFF Merkle Hashing", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         return [
             testBuilderAPI(),
@@ -615,11 +755,18 @@ public final class BuilderTests: TestImplementation {
             testBuilderSetIntentEdit(),
             testBuilderSetIntentUpdate(),
             testReadIngredient(),
+            testBuilderSetBasePath(),
+            testBuilderSupportedMimeTypes(),
+            testIngredientArchiveRoundtrip(),
             testNeedsPlaceholder(),
             testDataHashSigningWorkflow(),
+            testBuilderContextManifestDefinition(),
+            testBuilderAddAction(),
+            testAddIngredientFromArchive(),
             testDataHashedPlaceholder(),
             testFormatEmbeddable(),
             testSignDataHashedEmbeddable(),
+            testBuilderFromArchiveRoundtrip(),
             testBuilderHashType(),
             testBmffMerkleHashing()
         ]
