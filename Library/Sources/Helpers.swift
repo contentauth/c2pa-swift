@@ -88,8 +88,8 @@ func asStreamCtx(_ p: UnsafeMutableRawPointer) -> UnsafeMutablePointer<StreamCon
 /// FFI calls, freeing the native buffer with `c2pa_free`. `length` is the guarded,
 /// non-negative result; `pointer` is the out-parameter the call populated.
 func manifestData(length: Int64, pointer: UnsafePointer<UInt8>?) -> Data {
-    guard let pointer, length > 0 else { return Data() }
-    let data = Data(bytes: pointer, count: Int(length))
-    _ = c2pa_free(pointer)
-    return data
+    guard let pointer else { return Data() }
+    defer { _ = c2pa_free(pointer) }
+    guard length > 0 else { return Data() }
+    return Data(bytes: pointer, count: Int(length))
 }

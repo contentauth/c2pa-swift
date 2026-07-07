@@ -557,7 +557,7 @@ public final class Builder {
                 Int64(c2pa_builder_hash_mdat_bytes(
                     ptr,
                     UInt(mdatId),
-                    buf.bindMemory(to: UInt8.self).baseAddress!,
+                    buf.bindMemory(to: UInt8.self).baseAddress,
                     UInt(data.count),
                     largeSize))
             )
