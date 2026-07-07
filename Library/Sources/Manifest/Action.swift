@@ -24,8 +24,8 @@ public struct Action: Codable, Equatable {
 
     public enum CodingKeys: String, CodingKey {
         case action
-        case digitalSourceType = "digital_source_type"
-        case softwareAgent = "software_agent"
+        case digitalSourceType = "digitalSourceType"
+        case softwareAgent = "softwareAgent"
         case parameters
         case when
         case changes
