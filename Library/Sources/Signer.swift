@@ -368,18 +368,24 @@ public final class Signer {
         }
 
         var raw: UnsafeMutablePointer<C2paSigner>!
-        try certificateChainPEM.withCString { certPtr in
-            try withOptionalCString(tsa?.absoluteString) { tsaPtr in
-                raw = try guardNotNull(
-                    c2pa_signer_create(
-                        ref.toOpaque(),  // Pass opaque pointer to Box instance
-                        tramp,
-                        algorithm.cValue,
-                        certPtr,
-                        tsaPtr
+        do {
+            try certificateChainPEM.withCString { certPtr in
+                try withOptionalCString(tsa?.absoluteString) { tsaPtr in
+                    raw = try guardNotNull(
+                        c2pa_signer_create(
+                            ref.toOpaque(),  // Pass opaque pointer to Box instance
+                            tramp,
+                            algorithm.cValue,
+                            certPtr,
+                            tsaPtr
+                        )
                     )
-                )
+                }
             }
+        } catch {
+            // No signer was created, so deinit will never release the box.
+            ref.release()
+            throw error
         }
 
         self.init(ptr: raw)

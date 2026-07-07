@@ -300,15 +300,23 @@ public extension Stream {
 
         if write {
             writer = { buffer, count in
-                try? fhBox.fh.write(contentsOf: Data(bytes: buffer, count: count))
+                do {
+                    try fhBox.fh.write(contentsOf: Data(bytes: buffer, count: count))
 
-                return count
+                    return count
+                } catch {
+                    return -1
+                }
             }
 
             flusher = {
-                try? fhBox.fh.synchronize()
+                do {
+                    try fhBox.fh.synchronize()
 
-                return 0
+                    return 0
+                } catch {
+                    return -1
+                }
             }
         } else {
             writer = nil
