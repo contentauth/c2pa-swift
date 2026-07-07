@@ -274,7 +274,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.contentauth.signingserver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEBUG_INFORMATION_FORMAT = dwarf;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -288,7 +288,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.contentauth.signingserver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEBUG_INFORMATION_FORMAT = dwarf;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
