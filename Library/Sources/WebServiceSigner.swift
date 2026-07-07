@@ -57,14 +57,13 @@ import os
 /// ```
 ///
 /// - SeeAlso: ``Signer``, ``SignerError``
-public final class WebServiceSigner: @unchecked Sendable {
+public final class WebServiceSigner: Sendable {
     private let configurationEndpoint: URL
     private let bearerToken: String?
     private let customHeaders: [String: String]
     private let urlSession: URLSession
-    private var signingEndpoint: URL?
 
-    private lazy var log = Logger(subsystem: "org.contentauth.c2pa", category: String(describing: type(of: self)))
+    private let log = Logger(subsystem: "org.contentauth.c2pa", category: "WebServiceSigner")
 
     /// Creates a new web service signer client.
     ///
@@ -90,13 +89,9 @@ public final class WebServiceSigner: @unchecked Sendable {
     ///
     /// - Throws: ``SignerError`` if the configuration cannot be fetched, is invalid,
     ///   or if the signing service is unavailable.
-    ///
-    /// - Note: This method must be called from the main actor.
-    @MainActor
     public func createSigner() async throws -> Signer {
         let configuration = try await fetchConfiguration()
         let signingAlgorithm = try mapAlgorithm(configuration.algorithm)
-        self.signingEndpoint = configuration.signingEndpoint
         let certificateChain = try parseCertificateChain(configuration.certificateChain)
 
         // Use strong self capture to keep WebServiceSigner alive
@@ -324,50 +319,23 @@ extension Signer {
             certificateChainPEM: certificateChainPEM,
             tsa: tsa
         ) { data in
-            // Thread-safe result container
-            final class ResultBox: @unchecked Sendable {
-                private let lock = NSLock()
-                private var _result: Result<Data, Error>?
-
-                func setResult(_ result: Result<Data, Error>) {
-                    lock.lock()
-                    defer { lock.unlock() }
-                    _result = result
-                }
-
-                func getResult() -> Result<Data, Error>? {
-                    lock.lock()
-                    defer { lock.unlock() }
-                    return _result
-                }
-            }
-
-            let resultBox = ResultBox()
             let semaphore = DispatchSemaphore(value: 0)
+            // The semaphore's signal/wait pair orders every access to `result`.
+            nonisolated(unsafe) var result: Result<Data, Error>?
 
-            // Use a global queue to avoid main queue dependencies
-            DispatchQueue.global().async {
-                Task {
-                    do {
-                        let signature = try await asyncSigner(data)
-                        resultBox.setResult(.success(signature))
-                    } catch {
-                        resultBox.setResult(.failure(error))
-                    }
-                    semaphore.signal()
+            Task.detached {
+                do {
+                    result = .success(try await asyncSigner(data))
+                } catch {
+                    result = .failure(error)
                 }
+                semaphore.signal()
             }
 
             semaphore.wait()
 
-            switch resultBox.getResult() {
-            case .success(let signature):
-                return signature
-            case .failure(let error):
-                throw error
-            case .none:
-                throw C2PAError.asyncSigningFailed
-            }
+            guard let result else { throw C2PAError.asyncSigningFailed }
+            return try result.get()
         }
     }
 }
