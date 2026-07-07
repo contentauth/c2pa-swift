@@ -13,16 +13,18 @@ import CoreLocation
 import Crypto
 import Foundation
 import ImageIO
+import Observation
 import OSLog
 import Security
 import UIKit
 
 @MainActor
-final class C2PAManager: ObservableObject {
+@Observable
+final class C2PAManager {
     static let shared = C2PAManager()
 
-    @Published var isProcessing = false
-    @Published var lastError: String?
+    var isProcessing = false
+    var lastError: String?
 
     var defaultCertificateData: Data?
     var defaultPrivateKeyData: Data?
