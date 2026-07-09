@@ -17,6 +17,7 @@
 		953469DD2E4D2578003E83AD /* C2PA.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A1234501234567890ABCDEF /* C2PA.framework */; };
 		953469E62E4D25C6003E83AD /* TestShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 953469E52E4D25C6003E83AD /* TestShared.framework */; };
 		95892C1E2ED7059E005FC6B7 /* Intent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95892C1D2ED7059E005FC6B7 /* Intent.swift */; };
+		95FACE020000000000000299 /* HashType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95FACE010000000000000299 /* HashType.swift */; };
 		959C8A3A2E4E3C0000FBD820 /* C2PAC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 959C8A2E2E4E38E700FBD820 /* C2PAC.framework */; };
 		95A7823D2E6F06E4001E9748 /* Builder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A782322E6F06E4001E9748 /* Builder.swift */; };
 		95A7823E2E6F06E4001E9748 /* KeychainSigner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A782352E6F06E4001E9748 /* KeychainSigner.swift */; };
@@ -62,6 +63,7 @@
 		953469D92E4D2578003E83AD /* C2PATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = C2PATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		953469E52E4D25C6003E83AD /* TestShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = TestShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		95892C1D2ED7059E005FC6B7 /* Intent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intent.swift; sourceTree = "<group>"; };
+		95FACE010000000000000299 /* HashType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashType.swift; sourceTree = "<group>"; };
 		959C8A2E2E4E38E700FBD820 /* C2PAC.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = C2PAC.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		95A782322E6F06E4001E9748 /* Builder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Builder.swift; sourceTree = "<group>"; };
 		95A782342E6F06E4001E9748 /* Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Helpers.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 			children = (
 				A0B3CEAA2E96A5DE00F2F938 /* Manifest */,
 				95892C1D2ED7059E005FC6B7 /* Intent.swift */,
+				95FACE010000000000000299 /* HashType.swift */,
 				8A1234551234567890ABCDEF /* C2PA.swift */,
 				95A782322E6F06E4001E9748 /* Builder.swift */,
 				A0C2A0012E96B00100F2F938 /* C2PAError.swift */,
@@ -358,6 +361,7 @@
 				95A782402E6F06E4001E9748 /* Reader.swift in Sources */,
 				95A782412E6F06E4001E9748 /* Helpers.swift in Sources */,
 				95892C1E2ED7059E005FC6B7 /* Intent.swift in Sources */,
+				95FACE020000000000000299 /* HashType.swift in Sources */,
 				A0C2A0062E96B00100F2F938 /* SignerInfo.swift in Sources */,
 				95A782422E6F06E4001E9748 /* Stream.swift in Sources */,
 				95A782432E6F06E4001E9748 /* SigningAlgorithm.swift in Sources */,

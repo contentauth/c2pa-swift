@@ -39,6 +39,10 @@ public enum TestUtilities {
         return loadTestResource(name: "pexels-asadphoto-457882", ext: "jpg")
     }
 
+    public static func loadVideoTestData() -> Data? {
+        return loadTestResource(name: "video1", ext: "mp4")
+    }
+
     // Test certificate PEM for testing (valid cert for actual signing)
     public static var testCertsPEM: String {
         let bundle = Bundle(for: TestUtilitiesClassReference.self)

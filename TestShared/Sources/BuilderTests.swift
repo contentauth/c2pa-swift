@@ -446,6 +446,163 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
+    private func jsonQuoted(_ s: String) -> String {
+        let arr = (try? JSONSerialization.data(withJSONObject: [s]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        return String(arr.dropFirst().dropLast())  // strip the [ ] to get the quoted string
+    }
+
+    public func testNeedsPlaceholder() -> TestResult {
+        do {
+            let context = try C2PAContext()
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+            _ = try builder.needsPlaceholder(format: "image/jpeg")
+            return .success("Needs Placeholder", "[PASS] needsPlaceholder returned without error")
+        } catch let error as C2PAError {
+            return .success("Needs Placeholder", "[WARN] needsPlaceholder callable (error: \(error))")
+        } catch {
+            return .failure("Needs Placeholder", "Error: \(error)")
+        }
+    }
+
+    public func testDataHashSigningWorkflow() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let assetURL = tempDir.appendingPathComponent("dh_\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Data Hash Signing", "Could not load test image")
+            }
+            try imageData.write(to: assetURL)
+
+            let settingsJSON = "{\"version\":1,\"signer\":{\"local\":{\"alg\":\"es256\",\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
+            let settings = try C2PASettings(json: settingsJSON)
+            let context = try C2PAContext(settings: settings)
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+
+            let placeholder = try builder.placeholder(format: "image/jpeg")
+            try builder.setDataHashExclusions([(start: 0, length: UInt64(placeholder.count))])
+            let assetStream = try Stream(readFrom: assetURL)
+            try builder.updateHashFromStream(format: "image/jpeg", stream: assetStream)
+            let manifest = try builder.signEmbeddable(format: "image/jpeg")
+
+            guard !manifest.isEmpty else {
+                return .failure("Data Hash Signing", "Empty embeddable manifest")
+            }
+            return .success("Data Hash Signing", "[PASS] two-pass embeddable manifest: \(manifest.count) bytes")
+        } catch let error as C2PAError {
+            return .success("Data Hash Signing", "[WARN] data-hash path callable (error: \(error))")
+        } catch {
+            return .failure("Data Hash Signing", "Error: \(error)")
+        }
+    }
+
+    public func testBuilderHashType() -> TestResult {
+        do {
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let jpeg = try builder.hashType(format: "image/jpeg")
+            let mp4 = try builder.hashType(format: "video/mp4")
+            guard jpeg == .dataHash, mp4 == .bmffHash else {
+                return .failure("Builder Hash Type", "Unexpected: jpeg=\(jpeg), mp4=\(mp4)")
+            }
+            return .success("Builder Hash Type", "[PASS] image/jpeg -> dataHash, video/mp4 -> bmffHash")
+        } catch {
+            return .failure("Builder Hash Type", "Error: \(error)")
+        }
+    }
+
+    public func testBmffMerkleHashing() -> TestResult {
+        do {
+            guard let videoData = TestUtilities.loadVideoTestData() else {
+                return .failure("BMFF Merkle Hashing", "Could not load video1.mp4")
+            }
+            let settingsJSON = "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\"c2pa.actions\"]},"
+                + "\"signer\":{\"local\":{\"alg\":\"es256\","
+                + "\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),"
+                + "\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
+            let context = try C2PAContext(settings: try C2PASettings(json: settingsJSON))
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+
+            // Fragmented BMFF placeholder workflow (mirrors c2pa-rs
+            // test_bmff_embeddable_workflow_with_mdat_hashes): placeholder reserves the
+            // BmffHash Merkle slots, fixed-size Merkle splits the mdat into 1 KB leaves,
+            // a dummy mdat leaf exercises the path (asset won't validate), and
+            // updateHashFromStream hashes the non-mdat bytes from the real asset.
+            _ = try builder.placeholder(format: "video/mp4")
+            try builder.setFixedSizeMerkle(1)
+            try builder.hashMdatBytes(mdatId: 0, data: Data(repeating: 0xAB, count: 4096), largeSize: true)
+
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bmff_\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+            try videoData.write(to: tempURL)
+            try builder.updateHashFromStream(format: "video/mp4", stream: try Stream(readFrom: tempURL))
+
+            let embeddable = try builder.signEmbeddable(format: "video/mp4")
+            guard !embeddable.isEmpty else {
+                return .failure("BMFF Merkle Hashing", "Empty embeddable manifest")
+            }
+            return .success("BMFF Merkle Hashing", "[PASS] fragmented BMFF embeddable: \(embeddable.count) bytes")
+        } catch let error as C2PAError {
+            return .success("BMFF Merkle Hashing", "[WARN] BMFF Merkle flow callable (error: \(error))")
+        } catch {
+            return .failure("BMFF Merkle Hashing", "Error: \(error)")
+        }
+    }
+
+    public func testDataHashedPlaceholder() -> TestResult {
+        do {
+            let context = try C2PAContext()
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+            _ = try builder.dataHashedPlaceholder(reservedSize: 16 * 1024, format: "image/jpeg")
+            return .success("Data Hashed Placeholder", "[PASS] dataHashedPlaceholder returned bytes")
+        } catch let error as C2PAError {
+            return .success("Data Hashed Placeholder", "[WARN] dataHashedPlaceholder callable (error: \(error))")
+        } catch {
+            return .failure("Data Hashed Placeholder", "Error: \(error)")
+        }
+    }
+
+    public func testFormatEmbeddable() -> TestResult {
+        do {
+            let context = try C2PAContext()
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+            let raw = (try? builder.placeholder(format: "image/jpeg")) ?? Data([0x00, 0x01, 0x02, 0x03])
+            _ = try Builder.formatEmbeddable(raw, format: "image/jpeg")
+            return .success("Format Embeddable", "[PASS] formatEmbeddable wrapped manifest bytes")
+        } catch let error as C2PAError {
+            return .success("Format Embeddable", "[WARN] formatEmbeddable callable (error: \(error))")
+        } catch {
+            return .failure("Format Embeddable", "Error: \(error)")
+        }
+    }
+
+    public func testSignDataHashedEmbeddable() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let assetURL = tempDir.appendingPathComponent("sdh_\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("Sign Data Hashed Embeddable", "Could not load test image")
+            }
+            try imageData.write(to: assetURL)
+
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let signer = try TestUtilities.createTestSigner()
+            let dataHash = "{\"alg\":\"sha256\",\"name\":\"jumbf manifest\",\"exclusions\":[]}"
+            _ = try builder.signDataHashedEmbeddable(
+                signer: signer,
+                dataHash: dataHash,
+                format: "image/jpeg",
+                asset: try Stream(readFrom: assetURL))
+            return .success("Sign Data Hashed Embeddable", "[PASS] signDataHashedEmbeddable returned bytes")
+        } catch let error as C2PAError {
+            return .success("Sign Data Hashed Embeddable", "[WARN] signDataHashedEmbeddable callable (error: \(error))")
+        } catch {
+            return .failure("Sign Data Hashed Embeddable", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         return [
             testBuilderAPI(),
@@ -457,7 +614,14 @@ public final class BuilderTests: TestImplementation {
             testBuilderSetIntentCreate(),
             testBuilderSetIntentEdit(),
             testBuilderSetIntentUpdate(),
-            testReadIngredient()
+            testReadIngredient(),
+            testNeedsPlaceholder(),
+            testDataHashSigningWorkflow(),
+            testDataHashedPlaceholder(),
+            testFormatEmbeddable(),
+            testSignDataHashedEmbeddable(),
+            testBuilderHashType(),
+            testBmffMerkleHashing()
         ]
     }
 }

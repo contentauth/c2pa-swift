@@ -128,6 +128,41 @@ final class BuilderTests: XCTestCase {
         let result = tests.testReadIngredient()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testNeedsPlaceholder() throws {
+        let result = tests.testNeedsPlaceholder()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testDataHashSigningWorkflow() throws {
+        let result = tests.testDataHashSigningWorkflow()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testDataHashedPlaceholder() throws {
+        let result = tests.testDataHashedPlaceholder()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testFormatEmbeddable() throws {
+        let result = tests.testFormatEmbeddable()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testSignDataHashedEmbeddable() throws {
+        let result = tests.testSignDataHashedEmbeddable()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBuilderHashType() throws {
+        let result = tests.testBuilderHashType()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBmffMerkleHashing() throws {
+        let result = tests.testBmffMerkleHashing()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Reader Tests
