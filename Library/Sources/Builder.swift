@@ -35,10 +35,16 @@ import Foundation
 /// - ``addAction(_:)``
 /// - ``setNoEmbed()``
 /// - ``setRemote(url:)``
+/// - ``setBasePath(_:)``
+///
+/// ### Introspection
+/// - ``supportedMimeTypes``
 ///
 /// ### Adding Content
 /// - ``addResource(uri:stream:)``
 /// - ``addIngredient(json:format:from:)``
+/// - ``addIngredient(fromArchive:)``
+/// - ``writeIngredientArchive(id:to:)``
 ///
 /// ### Signing and Output
 /// - ``sign(format:source:destination:signer:)``
@@ -83,14 +89,20 @@ import Foundation
 public final class Builder {
     private let ptr: UnsafeMutablePointer<C2paBuilder>
 
+    // The native builder keeps a clone of the context alive, so the Swift wrapper
+    // must live at least as long or state it owns for the native layer dangles.
+    private let context: C2PAContext?
+
     /// Internal initializer that skips validation.
     private init(validatedJSON: String) throws {
         ptr = try guardNotNull(c2pa_builder_from_json(validatedJSON))
+        context = nil
     }
 
     /// Internal initializer that adopts an already-configured native builder.
-    private init(adopting ptr: UnsafeMutablePointer<C2paBuilder>) {
+    private init(adopting ptr: UnsafeMutablePointer<C2paBuilder>, context: C2PAContext?) {
         self.ptr = ptr
+        self.context = context
     }
 
     /// Validates a ``ManifestValidationResult``, logging warnings and throwing on errors.
@@ -136,6 +148,7 @@ public final class Builder {
     /// - Throws: ``C2PAError`` if the archive is invalid or cannot be read.
     public init(archiveStream: Stream) throws {
         ptr = try guardNotNull(c2pa_builder_from_archive(archiveStream.rawPtr))
+        context = nil
     }
 
     /// Creates a new builder from a ``C2PAContext`` and a manifest JSON definition.
@@ -154,7 +167,7 @@ public final class Builder {
     public convenience init(context: C2PAContext, manifestJSON: String) throws {
         let base = try guardNotNull(c2pa_builder_from_context(context.ptr))
         let configured = try guardNotNull(c2pa_builder_with_definition(base, manifestJSON))
-        self.init(adopting: configured)
+        self.init(adopting: configured, context: context)
     }
 
     /// Creates a new builder from a ``C2PAContext`` and a ``ManifestDefinition``.
@@ -175,7 +188,7 @@ public final class Builder {
         try self.init(context: context, manifestJSON: manifest.toJSON())
     }
 
-    deinit { c2pa_builder_free(ptr) }
+    deinit { _ = c2pa_free(ptr) }
 
     /// Sets the builder intent, specifying what kind of manifest to create.
     ///
@@ -260,6 +273,26 @@ public final class Builder {
         )
     }
 
+    /// Sets the base directory used to resolve relative resource paths in the manifest.
+    ///
+    /// - Parameter url: A directory URL used as the base path for resolving resources.
+    ///
+    /// - Throws: ``C2PAError`` if the base path cannot be set.
+    public func setBasePath(_ url: URL) throws {
+        _ = try guardNonNegative(
+            Int64(c2pa_builder_set_base_path(ptr, url.path))
+        )
+    }
+
+    /// The MIME types supported by the builder for signing.
+    ///
+    /// - Returns: An array of supported MIME type strings (e.g. `"image/jpeg"`).
+    public static var supportedMimeTypes: [String] {
+        var count: UInt = 0
+        let ptr = c2pa_builder_supported_mime_types(&count)
+        return stringArrayFromC(ptr, count: Int(count))
+    }
+
     /// Adds a resource to the manifest.
     ///
     /// Resources are auxiliary files (like thumbnails or metadata) that are
@@ -288,11 +321,37 @@ public final class Builder {
     ///   - stream: A ``Stream`` containing the ingredient file data.
     ///
     /// - Throws: ``C2PAError`` if the ingredient cannot be added.
-    ///
-    /// - SeeAlso: ``C2PA/readIngredient(at:dataDir:)``
     public func addIngredient(json: String, format: String, from stream: Stream) throws {
         _ = try guardNonNegative(
             Int64(c2pa_builder_add_ingredient_from_stream(ptr, json, format, stream.rawPtr))
+        )
+    }
+
+    /// Adds an ingredient previously exported as a C2PA ingredient archive.
+    ///
+    /// - Parameter stream: A ``Stream`` containing a C2PA ingredient archive.
+    ///
+    /// - Throws: ``C2PAError`` if the archive cannot be read or added.
+    ///
+    /// - SeeAlso: ``writeIngredientArchive(id:to:)``
+    public func addIngredient(fromArchive stream: Stream) throws {
+        _ = try guardNonNegative(
+            Int64(c2pa_builder_add_ingredient_from_archive(ptr, stream.rawPtr))
+        )
+    }
+
+    /// Writes a previously added ingredient out as a standalone C2PA ingredient archive.
+    ///
+    /// - Parameters:
+    ///   - id: The identifier of the ingredient to export.
+    ///   - stream: A ``Stream`` where the ingredient archive will be written.
+    ///
+    /// - Throws: ``C2PAError`` if the ingredient cannot be written.
+    ///
+    /// - SeeAlso: ``addIngredient(fromArchive:)``
+    public func writeIngredientArchive(id: String, to stream: Stream) throws {
+        _ = try guardNonNegative(
+            Int64(c2pa_builder_write_ingredient_archive(ptr, id, stream.rawPtr))
         )
     }
 
@@ -361,10 +420,7 @@ public final class Builder {
                 signer.ptr,
                 &manifestPtr)
         )
-        guard let mp = manifestPtr else { return Data() }
-        let data = Data(bytes: mp, count: Int(size))
-        c2pa_manifest_bytes_free(mp)
-        return data
+        return manifestData(length: size, pointer: manifestPtr)
     }
 
     // MARK: - Embeddable & Data-Hash Signing

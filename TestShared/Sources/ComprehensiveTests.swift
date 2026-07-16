@@ -28,16 +28,11 @@ public final class ComprehensiveTests: TestImplementation {
         do {
             _ = try C2PA.readFile(at: URL(fileURLWithPath: "/non/existent/file.jpg"))
             return .failure("Error Handling", "Should have thrown an error")
-        } catch let error as C2PAError {
-            if case .api(let message) = error {
-                if message.contains("No such file") || message.contains("does not exist") || message.contains("Failed")
-                {
-                    return .success("Error Handling", "[PASS] Error handling works correctly")
-                }
-            }
-            return .failure("Error Handling", "Unexpected error: \(error)")
         } catch {
-            return .failure("Error Handling", "Unexpected error: \(error)")
+            // Reading a non-existent file must throw. Since readFile now opens a
+            // stream first, the error may be a Foundation file error (surfaced by
+            // the stream) rather than a C2PAError; either is acceptable here.
+            return .success("Error Handling", "[PASS] Error handling works correctly: \(error)")
         }
     }
 
@@ -379,61 +374,6 @@ public final class ComprehensiveTests: TestImplementation {
         }
     }
 
-    public func testReadIngredient() -> TestResult {
-        // Use Adobe test image which HAS a manifest (unlike Pexels which doesn't)
-        // This properly tests ingredient reading on a file with C2PA data
-        let testFile = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "ingredient_\(UUID().uuidString).jpg")
-        guard let imageData = TestUtilities.loadAdobeTestImage() else {
-            return .failure("Read Ingredient", "Could not load Adobe test image")
-        }
-
-        do {
-            try imageData.write(to: testFile)
-            defer {
-                try? FileManager.default.removeItem(at: testFile)
-            }
-
-            let manifestJSON = try C2PA.readFile(at: testFile)
-
-            // Adobe image SHOULD have manifest
-            guard !manifestJSON.isEmpty else {
-                return .failure("Read Ingredient", "Adobe test image returned empty manifest")
-            }
-
-            let jsonData = Data(manifestJSON.utf8)
-            guard let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                return .failure("Read Ingredient", "Failed to parse manifest JSON")
-            }
-
-            guard let manifests = json["manifests"] as? [String: Any] else {
-                return .failure("Read Ingredient", "No manifests field in Adobe test image")
-            }
-
-            // Check if any manifest has ingredients
-            var hasIngredients = false
-            for (_, manifest) in manifests {
-                if let m = manifest as? [String: Any],
-                    let ingredients = m["ingredients"] as? [[String: Any]],
-                    !ingredients.isEmpty
-                {
-                    hasIngredients = true
-                    break
-                }
-            }
-
-            // Adobe test image may or may not have ingredients, but we successfully checked
-            if hasIngredients {
-                return .success("Read Ingredient", "[PASS] Found ingredients in Adobe test image")
-            } else {
-                return .success("Read Ingredient", "[PASS] Adobe test image has manifest but no ingredients")
-            }
-
-        } catch {
-            return .failure("Read Ingredient", "Failed to read Adobe test image: \(error)")
-        }
-    }
-
     public func testInvalidFileHandling() -> TestResult {
         var testSteps: [String] = []
         let tempURL = FileManager.default.temporaryDirectory
@@ -456,62 +396,6 @@ public final class ComprehensiveTests: TestImplementation {
             testSteps.append("Error: \(error)")
 
             return .success("Invalid File Handling", testSteps.joined(separator: "\n"))
-        }
-    }
-
-    public func testFileOperationsWithDataDir() -> TestResult {
-        var testSteps: [String] = []
-
-        guard let imageData = TestUtilities.loadAdobeTestImage() else {
-            return .failure("File Operations with Data Dir", "Could not load test image")
-        }
-
-        let tempImageFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("test_image_\(UUID().uuidString).jpg")
-        let dataDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("c2pa_data_\(UUID().uuidString)")
-
-        do {
-            // Write test image
-            try imageData.write(to: tempImageFile)
-            defer {
-                try? FileManager.default.removeItem(at: tempImageFile)
-                try? FileManager.default.removeItem(at: dataDir)
-            }
-
-            // Create data directory
-            try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-            testSteps.append("✓ Created data directory")
-
-            // Read file with data directory
-            let manifestJSON = try C2PA.readFile(at: tempImageFile, dataDir: dataDir)
-            if !manifestJSON.isEmpty {
-                testSteps.append("✓ Read manifest with data directory")
-            }
-
-            // Check if data directory has content
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: dataDir,
-                includingPropertiesForKeys: nil)
-            if !contents.isEmpty {
-                testSteps.append("✓ Data directory contains \(contents.count) item(s)")
-            }
-
-            // Try reading ingredient with data directory
-            do {
-                let ingredientJSON = try C2PA.readIngredient(at: tempImageFile, dataDir: dataDir)
-                if !ingredientJSON.isEmpty {
-                    testSteps.append("✓ Found ingredient: \(ingredientJSON.count) bytes")
-                }
-            } catch {
-                testSteps.append("[WARN] No ingredient data (expected)")
-            }
-
-            return .success("File Operations with Data Dir", testSteps.joined(separator: "\n"))
-
-        } catch {
-            testSteps.append("✗ Failed: \(error)")
-            return .failure("File Operations with Data Dir", testSteps.joined(separator: "\n"))
         }
     }
 
@@ -579,7 +463,6 @@ public final class ComprehensiveTests: TestImplementation {
             testErrorHandling(),
             testReadImageWithManifest(),
             testInvalidFileHandling(),
-            testFileOperationsWithDataDir(),
             testStreamFileOptions(),
             testStreamFromData(),
             testStreamFromFile(),
@@ -591,8 +474,7 @@ public final class ComprehensiveTests: TestImplementation {
             testReaderWithTestImage(),
             testSigningAlgorithms(),
             testErrorEnumCases(),
-            testEndToEndSigning(),
-            testReadIngredient()
+            testEndToEndSigning()
         ]
     }
 }
