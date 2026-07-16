@@ -12,13 +12,12 @@ The library wraps the Rust-based C2PA implementation via C bindings, providing a
 
 ### Reading Content Credentials
 
-- ``C2PA/readFile(at:dataDir:)``
-- ``C2PA/readIngredient(at:dataDir:)``
+- ``C2PA/readFile(at:)``
 - ``Reader``
 
 ### Creating and Signing Content
 
-- ``C2PA/signFile(source:destination:manifestJSON:signerInfo:dataDir:)``
+- ``C2PA/signFile(source:destination:manifestJSON:signerInfo:)``
 - ``Builder``
 - ``Signer``
 

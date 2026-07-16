@@ -25,7 +25,6 @@ import Foundation
 /// - ``nilPointer``
 /// - ``utf8``
 /// - ``negative(_:)``
-/// - ``ingredientDataNotFound(_:)``
 /// - ``ed25519NotSupported``
 /// - ``keySearchFailed(_:_:_:)``
 /// - ``unsupportedAlgorithm(_:_:)``
@@ -52,11 +51,6 @@ public enum C2PAError: Error, LocalizedError {
     ///
     /// - Parameter value: The negative status value.
     case negative(_ value: Int64)
-
-    /// The underlying C API probably experienced a NULL data_dir.
-    ///
-    /// - Parameter original: Original error message from C API.
-    case ingredientDataNotFound(_ original: String)
 
     /// Ed25519 algorithm is not supported by the Keychain.
     case ed25519NotSupported
@@ -105,9 +99,6 @@ public enum C2PAError: Error, LocalizedError {
 
         case .negative(let value):
             return "C2PA negative status \(value)"
-
-        case .ingredientDataNotFound(let original):
-            return "No ingredient data found: \(original)"
 
         case .ed25519NotSupported:
             return "Ed25519 not supported by Keychain"

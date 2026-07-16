@@ -129,6 +129,21 @@ final class BuilderTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testBuilderSetBasePath() throws {
+        let result = tests.testBuilderSetBasePath()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBuilderSupportedMimeTypes() throws {
+        let result = tests.testBuilderSupportedMimeTypes()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testIngredientArchiveRoundtrip() throws {
+        let result = tests.testIngredientArchiveRoundtrip()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testNeedsPlaceholder() throws {
         let result = tests.testNeedsPlaceholder()
         XCTAssertTrue(result.passed, result.message)
@@ -136,6 +151,21 @@ final class BuilderTests: XCTestCase {
 
     func testDataHashSigningWorkflow() throws {
         let result = tests.testDataHashSigningWorkflow()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBuilderContextManifestDefinition() throws {
+        let result = tests.testBuilderContextManifestDefinition()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBuilderAddAction() throws {
+        let result = tests.testBuilderAddAction()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testAddIngredientFromArchive() throws {
+        let result = tests.testAddIngredientFromArchive()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -151,6 +181,11 @@ final class BuilderTests: XCTestCase {
 
     func testSignDataHashedEmbeddable() throws {
         let result = tests.testSignDataHashedEmbeddable()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testBuilderFromArchiveRoundtrip() throws {
+        let result = tests.testBuilderFromArchiveRoundtrip()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -227,6 +262,16 @@ final class ReaderTests: XCTestCase {
 
     func testReaderDetailedJSONComparison() throws {
         let result = tests.testReaderDetailedJSONComparison()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testReaderSupportedMimeTypes() throws {
+        let result = tests.testReaderSupportedMimeTypes()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testReaderFromContext() throws {
+        let result = tests.testReaderFromContext()
         XCTAssertTrue(result.passed, result.message)
     }
 }
@@ -373,18 +418,8 @@ final class ComprehensiveTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testReadIngredient() throws {
-        let result = tests.testReadIngredient()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
     func testInvalidFileHandling() throws {
         let result = tests.testInvalidFileHandling()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testFileOperationsWithDataDir() throws {
-        let result = tests.testFileOperationsWithDataDir()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -705,11 +740,6 @@ final class ConvenienceTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testReadFileWithDataDir() throws {
-        let result = tests.testReadFileWithDataDir()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
     func testReadFileWithoutManifest() throws {
         let result = tests.testReadFileWithoutManifest()
         XCTAssertTrue(result.passed, result.message)
@@ -720,28 +750,13 @@ final class ConvenienceTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testReadIngredientWithManifest() throws {
-        let result = tests.testReadIngredientWithManifest()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testReadIngredientWithoutManifest() throws {
-        let result = tests.testReadIngredientWithoutManifest()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testReadIngredientWithoutDataDir() throws {
-        let result = tests.testReadIngredientWithoutDataDir()
+    func testReadFileUnknownExtension() throws {
+        let result = tests.testReadFileUnknownExtension()
         XCTAssertTrue(result.passed, result.message)
     }
 
     func testSignFile() throws {
         let result = tests.testSignFile()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testSignFileWithDataDir() throws {
-        let result = tests.testSignFileWithDataDir()
         XCTAssertTrue(result.passed, result.message)
     }
 

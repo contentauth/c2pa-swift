@@ -22,163 +22,76 @@ import Foundation
 /// ## Topics
 ///
 /// ### Reading Manifests
-/// - ``readFile(at:dataDir:)``
-/// - ``readIngredient(at:dataDir:)``
+/// - ``readFile(at:)``
 ///
 /// ### Signing Files
-/// - ``signFile(source:destination:manifestJSON:signerInfo:dataDir:)``
+/// - ``signFile(source:destination:manifestJSON:signerInfo:)``
 public enum C2PA {
 
     public static var version: String {
         let p = c2pa_version()!
-        defer { c2pa_string_free(p) }
+        defer { _ = c2pa_free(p) }
         return String(cString: p)
     }
 
     /// Reads the C2PA manifest from a file and returns it as JSON.
     ///
-    /// This method extracts and validates the C2PA manifest embedded in a media file,
-    /// returning the manifest data as a JSON string.
+    /// Opens the file as a stream, infers its MIME type from the file extension,
+    /// and returns the embedded manifest as a JSON string.
     ///
-    /// - Parameters:
-    ///   - url: The URL of the file to read the manifest from.
-    ///   - dataDir: Optional directory for storing temporary or cached data during processing.
+    /// - Parameter url: The URL of the file to read the manifest from.
     ///
     /// - Returns: A JSON string containing the C2PA manifest data.
     ///
-    /// - Throws: ``C2PAError`` if the file cannot be read, has no manifest, or contains invalid data.
+    /// - Throws: ``C2PAError`` if the file cannot be read, the type is unknown,
+    ///   or it contains no valid manifest.
     ///
     /// ## Example
     ///
     /// ```swift
-    /// do {
-    ///     let manifestJSON = try C2PA.readFile(at: imageURL)
-    ///     print("Manifest: \(manifestJSON)")
-    /// } catch {
-    ///     print("Failed to read manifest: \(error)")
-    /// }
+    /// let manifestJSON = try C2PA.readFile(at: imageURL)
     /// ```
-    ///
-    /// - SeeAlso: ``readIngredient(at:dataDir:)``
-    public static func readFile(
-        at url: URL,
-        dataDir: URL? = nil
-    ) throws -> String {
-        try stringFromC(
-            c2pa_read_file(url.path, dataDir?.path)
-        )
-    }
-
-    /// Reads ingredient information from a file that will be used in a C2PA manifest.
-    ///
-    /// This method extracts information about a media file that will be referenced as an
-    /// ingredient (source material) in a new C2PA manifest. Ingredients represent the
-    /// original or modified content used to create a new asset.
-    ///
-    /// - Parameters:
-    ///   - url: The URL of the ingredient file to read.
-    ///   - dataDir: Optional directory for storing temporary or cached data during processing.
-    ///
-    /// - Returns: A JSON string containing the ingredient information.
-    ///
-    /// - Throws: ``C2PAError`` if the file cannot be read or processed as an ingredient.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// do {
-    ///     let ingredientJSON = try C2PA.readIngredient(at: originalImageURL)
-    ///     // Use ingredientJSON when building a new manifest
-    /// } catch {
-    ///     print("Failed to read ingredient: \(error)")
-    /// }
-    /// ```
-    ///
-    /// - SeeAlso: ``readFile(at:dataDir:)``
-    public static func readIngredient(
-        at url: URL,
-        dataDir: URL? = nil
-    ) throws -> String {
-        let result = c2pa_read_ingredient_file(url.path, dataDir?.path)
-        guard let result = result else {
-            let errorMsg = lastC2PAError()
-            // TODO: This special case handling may be removable if the underlying C API
-            // is updated to handle NULL data_dir consistently with c2pa_read_file
-            if errorMsg.contains("null parameter data_dir") || errorMsg.contains("data_dir") {
-                throw C2PAError.ingredientDataNotFound(errorMsg)
-            }
-            throw C2PAError.api(errorMsg)
-        }
-        return try stringFromC(result)
+    public static func readFile(at url: URL) throws -> String {
+        let stream = try Stream(readFrom: url)
+        let format = try inferredMIMEType(for: url)
+        let reader = try Reader(format: format, stream: stream)
+        return try reader.json()
     }
 
     /// Signs a media file with a C2PA manifest using PEM-encoded certificates and keys.
     ///
-    /// This convenience method creates a signed copy of the source file with an embedded
-    /// C2PA manifest. The manifest contains assertions about the content, its provenance,
-    /// and is cryptographically signed using the provided credentials.
+    /// Streams the source through a context-based ``Builder`` and writes the signed
+    /// result to `destination`. The media format is inferred from the source extension.
     ///
     /// - Parameters:
     ///   - source: The URL of the source file to sign.
     ///   - destination: The URL where the signed file will be written.
     ///   - manifestJSON: A JSON string defining the C2PA manifest structure and assertions.
     ///   - signerInfo: The signing credentials including certificate chain and private key.
-    ///   - dataDir: Optional directory for storing temporary or cached data during processing.
     ///
-    /// - Throws: ``C2PAError`` if signing fails due to invalid inputs, I/O errors, or cryptographic issues.
+    /// - Throws: ``C2PAError`` if signing fails due to invalid inputs, I/O errors,
+    ///   an unknown file type, or cryptographic issues.
     ///
-    /// ## Example
+    /// - Note: For advanced scenarios (hardware-backed keys, streaming), use
+    ///   ``Builder`` with a ``Signer`` instance directly.
     ///
-    /// ```swift
-    /// let signerInfo = SignerInfo(
-    ///     certificatePEM: certPEM,
-    ///     privateKeyPEM: keyPEM,
-    ///     algorithm: .es256,
-    ///     tsa: URL(string: "http://timestamp.digicert.com")
-    /// )
-    ///
-    /// try C2PA.signFile(
-    ///     source: sourceURL,
-    ///     destination: destURL,
-    ///     manifestJSON: manifestJSON,
-    ///     signerInfo: signerInfo
-    /// )
-    /// ```
-    ///
-    /// - Note: For more advanced signing scenarios, including hardware-backed keys
-    ///   and streaming operations, use ``Builder`` with a ``Signer`` instance.
-    ///
-    /// - SeeAlso: ``Builder``, ``Signer``, ``SignerInfo``
+    /// - SeeAlso: ``Builder``, ``Signer``, ``SignerInfo``, ``C2PAContext``
     public static func signFile(
         source: URL,
         destination: URL,
         manifestJSON: String,
-        signerInfo: SignerInfo,
-        dataDir: URL? = nil
+        signerInfo: SignerInfo
     ) throws {
-        var maybeErr: UnsafeMutablePointer<CChar>?
-        withSignerInfo(
-            algorithm: signerInfo.algorithm.rawValue,
-            cert: signerInfo.certificatePEM,
-            key: signerInfo.privateKeyPEM,
-            tsa: signerInfo.tsa
-        ) { algPtr, certPtr, keyPtr, tsaPtr in
-            var sInfo = C2paSignerInfo(
-                alg: algPtr,
-                sign_cert: certPtr,
-                private_key: keyPtr,
-                ta_url: tsaPtr)
-            maybeErr = c2pa_sign_file(
-                source.path,
-                destination.path,
-                manifestJSON,
-                &sInfo,
-                dataDir?.path)
-        }
-
-        if let e = maybeErr {
-            let msg = try stringFromC(e)
-            throw C2PAError.api(msg)
-        }
+        let format = try inferredMIMEType(for: source)
+        let sourceStream = try Stream(readFrom: source)
+        let destStream = try Stream(writeTo: destination)
+        let signer = try Signer(info: signerInfo)
+        let builder = try Builder(context: C2PAContext(), manifestJSON: manifestJSON)
+        _ = try builder.sign(
+            format: format,
+            source: sourceStream,
+            destination: destStream,
+            signer: signer
+        )
     }
 }

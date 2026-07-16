@@ -365,7 +365,7 @@ public final class Signer {
     }
 
     deinit {
-        c2pa_signer_free(ptr)
+        _ = c2pa_free(ptr)
         retainedContext?.release()
     }
 
