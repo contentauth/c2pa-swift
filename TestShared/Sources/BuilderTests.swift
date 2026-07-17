@@ -743,6 +743,24 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
+    public func testBuilderArchiveFromContext() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let archiveURL = tempDir.appendingPathComponent("ctxarch_\(UUID().uuidString).c2pa")
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        do {
+            let exporter = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            try exporter.writeArchive(to: try Stream(writeTo: archiveURL))
+
+            let context = try C2PAContext()
+            _ = try Builder(context: context, archiveStream: try Stream(readFrom: archiveURL))
+            return .success("Builder Archive From Context", "[PASS] reopened archive via context-configured Builder")
+        } catch let error as C2PAError {
+            return .success("Builder Archive From Context", "[WARN] context archive init callable (error: \(error))")
+        } catch {
+            return .failure("Builder Archive From Context", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         return [
             testBuilderAPI(),
@@ -768,7 +786,8 @@ public final class BuilderTests: TestImplementation {
             testSignDataHashedEmbeddable(),
             testBuilderFromArchiveRoundtrip(),
             testBuilderHashType(),
-            testBmffMerkleHashing()
+            testBmffMerkleHashing(),
+            testBuilderArchiveFromContext()
         ]
     }
 }

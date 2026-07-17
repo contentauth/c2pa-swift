@@ -29,6 +29,7 @@ import Foundation
 /// - ``init(archiveStream:)``
 /// - ``init(context:manifest:)``
 /// - ``init(context:manifestJSON:)``
+/// - ``init(context:archiveStream:)``
 ///
 /// ### Configuring the Manifest
 /// - ``setIntent(_:)``
@@ -141,14 +142,32 @@ public final class Builder {
         try self.init(validatedJSON: manifestJSON)
     }
 
-    /// Creates a new builder from a previously created C2PA archive stream.
+    /// Creates a new builder from a ``C2PAContext`` and a previously created C2PA archive stream.
+    ///
+    /// The builder inherits the context's configuration (settings), so values
+    /// such as created-assertion labels and trust configuration flow into the
+    /// signed manifest.
+    ///
+    /// - Parameters:
+    ///   - context: The ``C2PAContext`` providing shared configuration.
+    ///   - archiveStream: A ``Stream`` containing a C2PA archive.
+    ///
+    /// - Throws: ``C2PAError`` if the archive is invalid or cannot be read.
+    ///
+    /// - SeeAlso: ``C2PAContext``
+    public convenience init(context: C2PAContext, archiveStream: Stream) throws {
+        let base = try guardNotNull(c2pa_builder_from_context(context.ptr))
+        let configured = try guardNotNull(c2pa_builder_with_archive(base, archiveStream.rawPtr))
+        self.init(adopting: configured, context: context)
+    }
+
+    /// Creates a new builder from a previously created C2PA archive stream, using a default context.
     ///
     /// - Parameter archiveStream: A ``Stream`` containing a C2PA archive.
     ///
     /// - Throws: ``C2PAError`` if the archive is invalid or cannot be read.
-    public init(archiveStream: Stream) throws {
-        ptr = try guardNotNull(c2pa_builder_from_archive(archiveStream.rawPtr))
-        context = nil
+    public convenience init(archiveStream: Stream) throws {
+        try self.init(context: C2PAContext(), archiveStream: archiveStream)
     }
 
     /// Creates a new builder from a ``C2PAContext`` and a manifest JSON definition.
