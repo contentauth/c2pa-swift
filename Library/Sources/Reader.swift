@@ -191,7 +191,7 @@ public final class Reader {
 
     /// Returns the manifest as a crJSON string.
     ///
-    /// crJSON is the CBOR-rendered JSON form of the manifest store, added in c2pa-rs 0.88.0.
+    /// crJSON is the CBOR-rendered JSON form of the manifest store.
     ///
     /// - Returns: A crJSON string for the manifest.
     ///
