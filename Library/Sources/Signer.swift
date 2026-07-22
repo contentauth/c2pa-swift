@@ -30,6 +30,7 @@ import Foundation
 /// - ``init(certsPEM:privateKeyPEM:algorithm:tsa:)``
 /// - ``init(info:)``
 /// - ``init(algorithm:certificateChainPEM:tsa:sign:)``
+/// - ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
 ///
 /// ### Signing Operations
 /// - ``reserveSize()``
@@ -76,6 +77,12 @@ public final class Signer {
 
     let ptr: UnsafeMutablePointer<C2paSigner>
     private var retainedContext: Unmanaged<AnyObject>?
+    /// When true, the native signer was consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
+    /// and must not be freed by this instance.
+    private var consumed = false
+    /// Input signers consumed into this combined signer; held so their callback contexts
+    /// outlive this signer and are released only after this signer is freed.
+    private var consumedSigners: [Signer] = []
 
     private init(ptr: UnsafeMutablePointer<C2paSigner>) {
         self.ptr = ptr
@@ -365,7 +372,7 @@ public final class Signer {
     }
 
     deinit {
-        _ = c2pa_free(ptr)
+        if !consumed { _ = c2pa_free(ptr) }
         retainedContext?.release()
     }
 
@@ -379,6 +386,40 @@ public final class Signer {
     /// - Throws: ``C2PAError`` if the size cannot be determined.
     public func reserveSize() throws -> Int {
         try Int(guardNonNegative(c2pa_signer_reserve_size(ptr)))
+    }
+
+    /// Combines a claim signer with an X.509 identity signer into a single signer that
+    /// emits a `cawg.identity` assertion alongside the C2PA claim signature.
+    ///
+    /// Both `claimSigner` and `identitySigner` are **consumed** by this call: ownership
+    /// transfers to the returned signer, and they must not be reused or signed with afterward.
+    ///
+    /// - Parameters:
+    ///   - claimSigner: The signer used to sign the C2PA claim. Consumed by this call.
+    ///   - identitySigner: The signer used to sign the X.509 identity assertion. Consumed by this call.
+    ///   - referencedAssertions: Names of assertions to reference in the identity assertion.
+    ///   - roles: The named actor's roles.
+    ///
+    /// - Returns: A combined ``Signer`` that emits a `cawg.identity` assertion.
+    ///
+    /// - Throws: ``C2PAError`` if the combined signer cannot be created.
+    public static func withCawgIdentity(
+        _ claimSigner: Signer,
+        identity identitySigner: Signer,
+        referencedAssertions: [String] = [],
+        roles: [String] = []
+    ) throws -> Signer {
+        claimSigner.consumed = true
+        identitySigner.consumed = true
+        let raw = try withCStringArray(referencedAssertions) { refs in
+            try withCStringArray(roles) { roleList in
+                try guardNotNull(
+                    c2pa_identity_signer_create(claimSigner.ptr, identitySigner.ptr, refs, roleList))
+            }
+        }
+        let combined = Signer(ptr: raw)
+        combined.consumedSigners = [claimSigner, identitySigner]
+        return combined
     }
 }
 

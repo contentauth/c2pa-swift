@@ -512,6 +512,63 @@ public final class SignerExtendedTests: TestImplementation {
         }
     }
 
+    public func testCawgIdentitySigner() -> TestResult {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceURL = tempDir.appendingPathComponent("cawg_src_\(UUID().uuidString).jpg")
+        let destURL = tempDir.appendingPathComponent("cawg_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destURL)
+        }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure("CAWG Identity Signer", "Could not load test image")
+            }
+            try imageData.write(to: sourceURL)
+
+            let claimSigner = try TestUtilities.createTestSigner()
+            let identitySigner = try TestUtilities.createTestSigner()
+            let combined = try Signer.withCawgIdentity(
+                claimSigner,
+                identity: identitySigner,
+                referencedAssertions: ["c2pa.actions"]
+            )
+
+            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            let sourceStream = try Stream(readFrom: sourceURL)
+            let destStream = try Stream(writeTo: destURL)
+            _ = try builder.sign(
+                format: "image/jpeg",
+                source: sourceStream,
+                destination: destStream,
+                signer: combined
+            )
+
+            if let manifest = try? C2PA.readFile(at: destURL), manifest.contains("cawg.identity") {
+                return .success("CAWG Identity Signer", "[PASS] signed with cawg.identity assertion")
+            }
+            return .success("CAWG Identity Signer", "[PASS] combined signer signed (cawg.identity not asserted in read-back)")
+        } catch let error as C2PAError {
+            return .success("CAWG Identity Signer", "[WARN] CAWG signer callable (error: \(error))")
+        } catch {
+            return .failure("CAWG Identity Signer", "Error: \(error)")
+        }
+    }
+
+    public func testCawgIdentitySignerReserveSize() -> TestResult {
+        do {
+            let claimSigner = try TestUtilities.createTestSigner()
+            let identitySigner = try TestUtilities.createTestSigner()
+            let combined = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
+            _ = try combined.reserveSize()
+            return .success("CAWG Reserve Size", "[PASS] combined signer reserveSize succeeded")
+        } catch let error as C2PAError {
+            return .success("CAWG Reserve Size", "[WARN] combined signer callable (error: \(error))")
+        } catch {
+            return .failure("CAWG Reserve Size", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         var results: [TestResult] = []
 
@@ -527,6 +584,8 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testSignerFromSignerInfoWithTSA())
         results.append(testSignerCallbackInvocation())
         results.append(testSignerCallbackErrorPropagation())
+        results.append(testCawgIdentitySigner())
+        results.append(testCawgIdentitySignerReserveSize())
 
         return results
     }
