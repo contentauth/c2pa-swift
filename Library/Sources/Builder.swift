@@ -436,7 +436,7 @@ public final class Builder {
                 format,
                 source.rawPtr,
                 destination.rawPtr,
-                signer.ptr,
+                try signer.livePtr(),
                 &manifestPtr)
         )
         return manifestData(length: size, pointer: manifestPtr)
@@ -575,7 +575,7 @@ public final class Builder {
     ) throws -> Data {
         var out: UnsafePointer<UInt8>?
         let len = try guardNonNegative(c2pa_builder_sign_data_hashed_embeddable(
-            ptr, signer.ptr, dataHash, format, asset.rawPtr, &out))
+            ptr, try signer.livePtr(), dataHash, format, asset.rawPtr, &out))
         return manifestData(length: len, pointer: out)
     }
 

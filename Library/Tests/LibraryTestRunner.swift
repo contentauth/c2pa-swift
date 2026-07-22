@@ -850,6 +850,11 @@ final class SignerExtendedTests: XCTestCase {
         let result = tests.testCawgIdentitySignerReserveSize()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testConsumedSignerIsGuarded() throws {
+        let result = tests.testConsumedSignerIsGuarded()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Web Service Signer Tests

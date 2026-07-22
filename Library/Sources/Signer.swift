@@ -84,6 +84,21 @@ public final class Signer {
     /// outlive this signer and are released only after this signer is freed.
     private var consumedSigners: [Signer] = []
 
+    /// The native signer, validated as still owned by this instance.
+    ///
+    /// Use this instead of ``ptr`` wherever the pointer is handed to the C layer, so a
+    /// signer consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
+    /// fails with a clear error rather than dereferencing memory it no longer owns.
+    ///
+    /// - Throws: ``C2PAError`` if this signer was consumed.
+    func livePtr() throws -> UnsafeMutablePointer<C2paSigner> {
+        guard !consumed else {
+            throw C2PAError.api(
+                "Signer was consumed by withCawgIdentity(_:identity:referencedAssertions:roles:) and cannot be reused")
+        }
+        return ptr
+    }
+
     private init(ptr: UnsafeMutablePointer<C2paSigner>) {
         self.ptr = ptr
     }
@@ -385,7 +400,7 @@ public final class Signer {
     ///
     /// - Throws: ``C2PAError`` if the size cannot be determined.
     public func reserveSize() throws -> Int {
-        try Int(guardNonNegative(c2pa_signer_reserve_size(ptr)))
+        try Int(guardNonNegative(c2pa_signer_reserve_size(livePtr())))
     }
 
     /// Combines a claim signer with an X.509 identity signer into a single signer that
@@ -409,12 +424,16 @@ public final class Signer {
         referencedAssertions: [String] = [],
         roles: [String] = []
     ) throws -> Signer {
+        let claimPtr = try claimSigner.livePtr()
+        let identityPtr = try identitySigner.livePtr()
+        // The native call invalidates both inputs unconditionally, so mark them consumed
+        // before it runs: on failure that leaks rather than risking a double free.
         claimSigner.consumed = true
         identitySigner.consumed = true
         let raw = try withCStringArray(referencedAssertions) { refs in
             try withCStringArray(roles) { roleList in
                 try guardNotNull(
-                    c2pa_identity_signer_create(claimSigner.ptr, identitySigner.ptr, refs, roleList))
+                    c2pa_identity_signer_create(claimPtr, identityPtr, refs, roleList))
             }
         }
         let combined = Signer(ptr: raw)

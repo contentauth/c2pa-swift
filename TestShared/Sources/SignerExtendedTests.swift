@@ -569,6 +569,34 @@ public final class SignerExtendedTests: TestImplementation {
         }
     }
 
+    public func testConsumedSignerIsGuarded() -> TestResult {
+        let claimSigner: Signer
+        let identitySigner: Signer
+        do {
+            claimSigner = try TestUtilities.createTestSigner()
+            identitySigner = try TestUtilities.createTestSigner()
+            _ = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
+        } catch let error as C2PAError {
+            return .success("Consumed Signer Guarded", "[WARN] setup unavailable (error: \(error))")
+        } catch {
+            return .failure("Consumed Signer Guarded", "Setup error: \(error)")
+        }
+
+        // Both inputs are now consumed; reusing either must throw rather than
+        // dereference a pointer the combined signer owns.
+        do {
+            _ = try claimSigner.reserveSize()
+            return .failure("Consumed Signer Guarded", "reserveSize on a consumed signer should have thrown")
+        } catch is C2PAError {}
+
+        do {
+            _ = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
+            return .failure("Consumed Signer Guarded", "re-combining consumed signers should have thrown")
+        } catch is C2PAError {}
+
+        return .success("Consumed Signer Guarded", "[PASS] consumed signers reject reuse")
+    }
+
     public func runAllTests() async -> [TestResult] {
         var results: [TestResult] = []
 
@@ -586,6 +614,7 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testSignerCallbackErrorPropagation())
         results.append(testCawgIdentitySigner())
         results.append(testCawgIdentitySignerReserveSize())
+        results.append(testConsumedSignerIsGuarded())
 
         return results
     }
