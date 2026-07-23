@@ -12,6 +12,13 @@ import C2PA
 import Foundation
 import Security
 
+/// Test-only escape hatch: aliases signers outside the compiler's region analysis so the
+/// runtime consumption guards stay exercisable once withCawgIdentity's parameters are `sending`.
+private enum SmuggledSigner {
+    nonisolated(unsafe) static var claim: Signer?
+    nonisolated(unsafe) static var identity: Signer?
+}
+
 // Extended Signer tests - covering reserveSize, exportPublicKeyPEM, loadSettings, etc.
 public final class SignerExtendedTests: TestImplementation {
 
@@ -570,31 +577,79 @@ public final class SignerExtendedTests: TestImplementation {
     }
 
     public func testConsumedSignerIsGuarded() -> TestResult {
-        let claimSigner: Signer
-        let identitySigner: Signer
         do {
-            claimSigner = try TestUtilities.createTestSigner()
-            identitySigner = try TestUtilities.createTestSigner()
+            let claimSigner = try TestUtilities.createTestSigner()
+            let identitySigner = try TestUtilities.createTestSigner()
+            SmuggledSigner.claim = claimSigner
+            SmuggledSigner.identity = identitySigner
             _ = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
         } catch let error as C2PAError {
+            SmuggledSigner.claim = nil
+            SmuggledSigner.identity = nil
             return .success("Consumed Signer Guarded", "[WARN] setup unavailable (error: \(error))")
         } catch {
+            SmuggledSigner.claim = nil
+            SmuggledSigner.identity = nil
             return .failure("Consumed Signer Guarded", "Setup error: \(error)")
         }
+        defer {
+            SmuggledSigner.claim = nil
+            SmuggledSigner.identity = nil
+        }
 
-        // Both inputs are now consumed; reusing either must throw rather than
-        // dereference a pointer the combined signer owns.
+        // Both inputs are now consumed; reusing either through an alias must throw rather
+        // than dereference a pointer the combined signer owns.
         do {
-            _ = try claimSigner.reserveSize()
+            _ = try SmuggledSigner.claim!.reserveSize()
             return .failure("Consumed Signer Guarded", "reserveSize on a consumed signer should have thrown")
-        } catch is C2PAError {}
+        } catch is C2PAError {
+        } catch {
+            return .failure("Consumed Signer Guarded", "unexpected error type: \(error)")
+        }
 
         do {
-            _ = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
+            _ = try Signer.withCawgIdentity(SmuggledSigner.claim!, identity: SmuggledSigner.identity!)
             return .failure("Consumed Signer Guarded", "re-combining consumed signers should have thrown")
-        } catch is C2PAError {}
+        } catch is C2PAError {
+        } catch {
+            return .failure("Consumed Signer Guarded", "unexpected error type: \(error)")
+        }
 
         return .success("Consumed Signer Guarded", "[PASS] consumed signers reject reuse")
+    }
+
+    public func testCawgSameInstanceRejected() -> TestResult {
+        let signer: Signer
+        do {
+            signer = try TestUtilities.createTestSigner()
+        } catch {
+            return .failure("CAWG Same Instance Rejected", "Setup error: \(error)")
+        }
+        SmuggledSigner.claim = signer
+        defer { SmuggledSigner.claim = nil }
+
+        do {
+            _ = try Signer.withCawgIdentity(signer, identity: SmuggledSigner.claim!)
+            return .failure(
+                "CAWG Same Instance Rejected", "combining a signer with itself should have thrown")
+        } catch let error as C2PAError {
+            guard "\(error)".contains("distinct") else {
+                return .failure("CAWG Same Instance Rejected", "unexpected error: \(error)")
+            }
+        } catch {
+            return .failure("CAWG Same Instance Rejected", "unexpected error: \(error)")
+        }
+
+        do {
+            _ = try SmuggledSigner.claim!.reserveSize()
+        } catch {
+            return .failure(
+                "CAWG Same Instance Rejected",
+                "signer should remain usable after a rejected combine: \(error)")
+        }
+        return .success(
+            "CAWG Same Instance Rejected",
+            "[PASS] same-instance combine rejected, signer still usable")
     }
 
     public func runAllTests() async -> [TestResult] {
@@ -615,6 +670,7 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testCawgIdentitySigner())
         results.append(testCawgIdentitySignerReserveSize())
         results.append(testConsumedSignerIsGuarded())
+        results.append(testCawgSameInstanceRejected())
 
         return results
     }

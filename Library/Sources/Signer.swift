@@ -409,6 +409,24 @@ public final class Signer {
     /// Both `claimSigner` and `identitySigner` are **consumed** by this call: ownership
     /// transfers to the returned signer, and they must not be reused or signed with afterward.
     ///
+    /// Both parameters are `sending`: in Swift 6 language mode the compiler rejects call
+    /// sites that reuse an input after this call, pass the same instance for both
+    /// parameters, or pass a signer that is still referenced elsewhere (for example, one
+    /// stored in a property). The diagnostic reads "sending 'x' risks causing data
+    /// races"; the fix is to construct each input as a fresh local (or inline) and use
+    /// only the returned signer afterward. Code compiled in Swift 5 language mode falls
+    /// back to runtime guards, which throw ``C2PAError`` on reuse.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let combined = try Signer.withCawgIdentity(
+    ///     try Signer(certsPEM: claimCerts, privateKeyPEM: claimKey, algorithm: .es256),
+    ///     identity: try Signer(certsPEM: idCerts, privateKeyPEM: idKey, algorithm: .es256),
+    ///     referencedAssertions: ["c2pa.actions"]
+    /// )
+    /// ```
+    ///
     /// - Parameters:
     ///   - claimSigner: The signer used to sign the C2PA claim. Consumed by this call.
     ///   - identitySigner: The signer used to sign the X.509 identity assertion. Consumed by this call.
@@ -417,13 +435,17 @@ public final class Signer {
     ///
     /// - Returns: A combined ``Signer`` that emits a `cawg.identity` assertion.
     ///
-    /// - Throws: ``C2PAError`` if the combined signer cannot be created.
+    /// - Throws: ``C2PAError`` if the combined signer cannot be created, or if
+    ///   `claimSigner` and `identitySigner` are the same instance.
     public static func withCawgIdentity(
-        _ claimSigner: Signer,
-        identity identitySigner: Signer,
+        _ claimSigner: sending Signer,
+        identity identitySigner: sending Signer,
         referencedAssertions: [String] = [],
         roles: [String] = []
     ) throws -> Signer {
+        guard claimSigner !== identitySigner else {
+            throw C2PAError.api("claim and identity signers must be distinct instances")
+        }
         let claimPtr = try claimSigner.livePtr()
         let identityPtr = try identitySigner.livePtr()
         // The native call invalidates both inputs unconditionally, so mark them consumed
