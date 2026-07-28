@@ -192,6 +192,8 @@ public final class Reader {
     /// Returns the manifest as a crJSON string.
     ///
     /// crJSON is the CBOR-rendered JSON form of the manifest store.
+    /// 
+    /// It is primarily used for testing application conformance, but may evolve to have other uses.
     ///
     /// - Returns: A crJSON string for the manifest.
     ///
