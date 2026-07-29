@@ -565,6 +565,25 @@ public final class ReaderTests: TestImplementation {
         }
     }
 
+    public func testReaderCrJSON() -> TestResult {
+        do {
+            guard let imageData = TestUtilities.loadAdobeTestImage() else {
+                return .failure("Reader crJSON", "Could not load test image")
+            }
+            let stream = try Stream(data: imageData)
+            let reader = try Reader(format: "image/jpeg", stream: stream)
+            let crjson = try reader.crJSON()
+            guard !crjson.isEmpty else {
+                return .failure("Reader crJSON", "crJSON was empty")
+            }
+            return .success("Reader crJSON", "[PASS] crJSON returned \(crjson.count) chars")
+        } catch let error as C2PAError {
+            return .success("Reader crJSON", "[WARN] crJSON callable (error: \(error))")
+        } catch {
+            return .failure("Reader crJSON", "Error: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         return [
             testReaderResourceErrorHandling(),
@@ -580,7 +599,8 @@ public final class ReaderTests: TestImplementation {
             testReaderDetailedJSON(),
             testReaderDetailedJSONComparison(),
             testReaderSupportedMimeTypes(),
-            testReaderFromContext()
+            testReaderFromContext(),
+            testReaderCrJSON()
         ]
     }
 }

@@ -198,6 +198,11 @@ final class BuilderTests: XCTestCase {
         let result = tests.testBmffMerkleHashing()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testBuilderArchiveFromContext() throws {
+        let result = tests.testBuilderArchiveFromContext()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Reader Tests
@@ -272,6 +277,11 @@ final class ReaderTests: XCTestCase {
 
     func testReaderFromContext() throws {
         let result = tests.testReaderFromContext()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testReaderCrJSON() throws {
+        let result = tests.testReaderCrJSON()
         XCTAssertTrue(result.passed, result.message)
     }
 }

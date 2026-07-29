@@ -33,6 +33,7 @@ import Foundation
 /// ### Reading Manifest Data
 /// - ``json()``
 /// - ``detailedJSON()``
+/// - ``crJSON()``
 /// - ``remote()``
 /// - ``isEmbedded()``
 ///
@@ -186,6 +187,21 @@ public final class Reader {
     /// - SeeAlso: ``json()``
     public func detailedJSON() throws -> String {
         try stringFromC(c2pa_reader_detailed_json(ptr))
+    }
+
+    /// Returns the manifest as a crJSON string.
+    ///
+    /// crJSON is the CBOR-rendered JSON form of the manifest store.
+    /// 
+    /// It is primarily used for testing application conformance, but may evolve to have other uses.
+    ///
+    /// - Returns: A crJSON string for the manifest.
+    ///
+    /// - Throws: ``C2PAError`` if the manifest cannot be read or is invalid.
+    ///
+    /// - SeeAlso: ``json()``, ``detailedJSON()``
+    public func crJSON() throws -> String {
+        try stringFromC(c2pa_reader_crjson(ptr))
     }
 
     /// Returns the remote URL where the manifest is hosted, if available.
