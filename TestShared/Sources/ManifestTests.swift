@@ -366,6 +366,51 @@ public final class ManifestTests: TestImplementation {
         return .success("Action Fields", "[PASS] Action new fields and round-trip verified")
     }
 
+    public func testActionWireKeys() -> TestResult {
+        // Guards the JSON key names themselves, which a Swift-encode/Swift-decode
+        // round-trip cannot catch: c2pa-rs renames these fields to camelCase and
+        // defines no snake_case aliases, so a mismatch silently drops the values.
+        let action = Action(
+            action: "c2pa.created",
+            digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
+            softwareAgent: "TestApp"
+        )
+
+        let json: String
+        do {
+            json = String(data: try JSONEncoder().encode(action), encoding: .utf8) ?? ""
+        } catch {
+            return .failure("Action Wire Keys", "Encoding error: \(error)")
+        }
+
+        for key in ["\"digitalSourceType\"", "\"softwareAgent\""] where !json.contains(key) {
+            return .failure("Action Wire Keys", "Encoded JSON is missing \(key): \(json)")
+        }
+        for key in ["\"digital_source_type\"", "\"software_agent\""] where json.contains(key) {
+            return .failure("Action Wire Keys", "Encoded JSON uses snake_case \(key): \(json)")
+        }
+
+        // Decoding must accept the camelCase form c2pa-rs actually emits.
+        let wireJSON = """
+        {"action":"c2pa.created",\
+        "digitalSourceType":"http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",\
+        "softwareAgent":"TestApp"}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(Action.self, from: Data(wireJSON.utf8))
+            guard decoded.digitalSourceType?.hasSuffix("digitalCapture") == true else {
+                return .failure("Action Wire Keys", "digitalSourceType did not decode from camelCase key")
+            }
+            guard decoded.softwareAgentString == "TestApp" else {
+                return .failure("Action Wire Keys", "softwareAgent did not decode from camelCase key")
+            }
+        } catch {
+            return .failure("Action Wire Keys", "Decoding error: \(error)")
+        }
+
+        return .success("Action Wire Keys", "[PASS] camelCase JSON keys verified in both directions")
+    }
+
     public func testValidateAndLog() -> TestResult {
         let manifest = ManifestDefinition(
             claimGeneratorInfo: [ClaimGeneratorInfo()],
@@ -734,6 +779,7 @@ public final class ManifestTests: TestImplementation {
             testNewPredefinedActions(),
             testActionV2SoftwareAgent(),
             testActionNewFields(),
+            testActionWireKeys(),
             testValidateAndLog(),
             testCustomAssertionLabelValidation(),
             testCreatedFactory(),
