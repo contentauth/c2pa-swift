@@ -526,6 +526,10 @@ final class ManifestTests: XCTestCase {
         let result = tests.testActionWireKeys()
         XCTAssertTrue(result.passed, result.message)
     }
+    func testManifestWireKeyDrift() throws {
+        let result = tests.testManifestWireKeyDrift()
+        XCTAssertTrue(result.passed, result.message)
+    }
     func testValidateAndLog() throws {
         XCTAssertTrue(tests.testValidateAndLog().passed)
     }
