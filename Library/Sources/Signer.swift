@@ -30,6 +30,7 @@ import Foundation
 /// - ``init(certsPEM:privateKeyPEM:algorithm:tsa:)``
 /// - ``init(info:)``
 /// - ``init(algorithm:certificateChainPEM:tsa:sign:)``
+/// - ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
 ///
 /// ### Signing Operations
 /// - ``reserveSize()``
@@ -76,6 +77,27 @@ public final class Signer {
 
     let ptr: UnsafeMutablePointer<C2paSigner>
     private var retainedContext: Unmanaged<AnyObject>?
+    /// When true, the native signer was consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
+    /// and must not be freed by this instance.
+    private var consumed = false
+    /// Input signers consumed into this combined signer; held so their callback contexts
+    /// outlive this signer and are released only after this signer is freed.
+    private var consumedSigners: [Signer] = []
+
+    /// The native signer, validated as still owned by this instance.
+    ///
+    /// Use this instead of ``ptr`` wherever the pointer is handed to the C layer, so a
+    /// signer consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
+    /// fails with a clear error rather than dereferencing memory it no longer owns.
+    ///
+    /// - Throws: ``C2PAError`` if this signer was consumed.
+    func livePtr() throws -> UnsafeMutablePointer<C2paSigner> {
+        guard !consumed else {
+            throw C2PAError.api(
+                "Signer was consumed by withCawgIdentity(_:identity:referencedAssertions:roles:) and cannot be reused")
+        }
+        return ptr
+    }
 
     private init(ptr: UnsafeMutablePointer<C2paSigner>) {
         self.ptr = ptr
@@ -365,7 +387,7 @@ public final class Signer {
     }
 
     deinit {
-        _ = c2pa_free(ptr)
+        if !consumed { _ = c2pa_free(ptr) }
         retainedContext?.release()
     }
 
@@ -378,7 +400,67 @@ public final class Signer {
     ///
     /// - Throws: ``C2PAError`` if the size cannot be determined.
     public func reserveSize() throws -> Int {
-        try Int(guardNonNegative(c2pa_signer_reserve_size(ptr)))
+        try Int(guardNonNegative(c2pa_signer_reserve_size(livePtr())))
+    }
+
+    /// Combines a claim signer with an X.509 identity signer into a single signer that
+    /// emits a `cawg.identity` assertion alongside the C2PA claim signature.
+    ///
+    /// Both `claimSigner` and `identitySigner` are **consumed** by this call: ownership
+    /// transfers to the returned signer, and they must not be reused or signed with afterward.
+    ///
+    /// Both parameters are `sending`: in Swift 6 language mode the compiler rejects call
+    /// sites that reuse an input after this call, pass the same instance for both
+    /// parameters, or pass a signer that is still referenced elsewhere (for example, one
+    /// stored in a property). The diagnostic reads "sending 'x' risks causing data
+    /// races"; the fix is to construct each input as a fresh local (or inline) and use
+    /// only the returned signer afterward. Code compiled in Swift 5 language mode falls
+    /// back to runtime guards, which throw ``C2PAError`` on reuse.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let combined = try Signer.withCawgIdentity(
+    ///     try Signer(certsPEM: claimCerts, privateKeyPEM: claimKey, algorithm: .es256),
+    ///     identity: try Signer(certsPEM: idCerts, privateKeyPEM: idKey, algorithm: .es256),
+    ///     referencedAssertions: ["c2pa.actions"]
+    /// )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - claimSigner: The signer used to sign the C2PA claim. Consumed by this call.
+    ///   - identitySigner: The signer used to sign the X.509 identity assertion. Consumed by this call.
+    ///   - referencedAssertions: Names of assertions to reference in the identity assertion.
+    ///   - roles: The named actor's roles.
+    ///
+    /// - Returns: A combined ``Signer`` that emits a `cawg.identity` assertion.
+    ///
+    /// - Throws: ``C2PAError`` if the combined signer cannot be created, or if
+    ///   `claimSigner` and `identitySigner` are the same instance.
+    public static func withCawgIdentity(
+        _ claimSigner: sending Signer,
+        identity identitySigner: sending Signer,
+        referencedAssertions: [String] = [],
+        roles: [String] = []
+    ) throws -> Signer {
+        guard claimSigner !== identitySigner else {
+            throw C2PAError.api("claim and identity signers must be distinct instances")
+        }
+        let claimPtr = try claimSigner.livePtr()
+        let identityPtr = try identitySigner.livePtr()
+        // The native call invalidates both inputs unconditionally, so mark them consumed
+        // before it runs: on failure that leaks rather than risking a double free.
+        claimSigner.consumed = true
+        identitySigner.consumed = true
+        let raw = try withCStringArray(referencedAssertions) { refs in
+            try withCStringArray(roles) { roleList in
+                try guardNotNull(
+                    c2pa_identity_signer_create(claimPtr, identityPtr, refs, roleList))
+            }
+        }
+        let combined = Signer(ptr: raw)
+        combined.consumedSigners = [claimSigner, identitySigner]
+        return combined
     }
 }
 

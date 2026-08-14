@@ -840,6 +840,26 @@ final class SignerExtendedTests: XCTestCase {
         let result = tests.testSignerCallbackErrorPropagation()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testCawgIdentitySigner() throws {
+        let result = tests.testCawgIdentitySigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testCawgIdentitySignerReserveSize() throws {
+        let result = tests.testCawgIdentitySignerReserveSize()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testConsumedSignerIsGuarded() throws {
+        let result = tests.testConsumedSignerIsGuarded()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testCawgSameInstanceRejected() throws {
+        let result = tests.testCawgSameInstanceRejected()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Web Service Signer Tests

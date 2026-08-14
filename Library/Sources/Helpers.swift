@@ -108,6 +108,20 @@ func manifestData(length: Int64, pointer: UnsafePointer<UInt8>?) -> Data {
     return Data(bytes: pointer, count: Int(length))
 }
 
+/// Invokes `body` with a NULL-terminated C string array built from `strings`
+/// (or `nil` when `strings` is empty). The array and its strings are valid only
+/// for the duration of `body`.
+func withCStringArray<R>(
+    _ strings: [String],
+    _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws -> R
+) rethrows -> R {
+    guard !strings.isEmpty else { return try body(nil) }
+    var cStrings: [UnsafePointer<CChar>?] = strings.map { UnsafePointer(strdup($0)) }
+    cStrings.append(nil)
+    defer { for p in cStrings where p != nil { free(UnsafeMutablePointer(mutating: p)) } }
+    return try cStrings.withUnsafeBufferPointer { try body($0.baseAddress) }
+}
+
 /// Infers the MIME type for a file URL from its path extension.
 ///
 /// - Parameter url: The file URL whose extension determines the MIME type.
