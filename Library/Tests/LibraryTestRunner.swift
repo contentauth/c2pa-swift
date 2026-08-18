@@ -1077,3 +1077,38 @@ final class SettingsDefinitionTests: XCTestCase {
     }
 }
 
+
+// MARK: - Helpers Tests
+
+// These exercise internal helpers directly, so they live here rather than in the
+// shared TestShared target, which only sees the public surface.
+final class CStringArrayTests: XCTestCase {
+
+    func testEmptyArrayPassesNull() throws {
+        let wasNil = try withCStringArray([]) { $0 == nil }
+        XCTAssertTrue(wasNil, "an empty array should pass NULL rather than an empty list")
+    }
+
+    func testStringsAreNullTerminated() throws {
+        let input = ["c2pa.actions", "cawg.training-mining"]
+        let readBack = try withCStringArray(input) { pointer -> [String] in
+            guard let pointer else { return [] }
+            var result: [String] = []
+            var index = 0
+            // Read until the terminator, exactly as the C layer does.
+            while let element = pointer[index] {
+                result.append(String(cString: element))
+                index += 1
+            }
+            return result
+        }
+        XCTAssertEqual(readBack, input, "the C layer must see every string, in order")
+    }
+
+    func testBodyErrorPropagates() {
+        struct Sentinel: Error {}
+        XCTAssertThrowsError(try withCStringArray(["a"]) { _ -> Int in throw Sentinel() }) { error in
+            XCTAssertTrue(error is Sentinel, "an error thrown by body should reach the caller unchanged")
+        }
+    }
+}
