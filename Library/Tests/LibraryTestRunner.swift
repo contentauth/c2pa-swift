@@ -530,6 +530,18 @@ final class ManifestTests: XCTestCase {
         let result = tests.testManifestWireKeyDrift()
         XCTAssertTrue(result.passed, result.message)
     }
+    func testClaimGeneratorInfoPreservesUnknownFields() throws {
+        let result = tests.testClaimGeneratorInfoPreservesUnknownFields()
+        XCTAssertTrue(result.passed, result.message)
+    }
+    func testClaimGeneratorInfoOperatingSystemAlias() throws {
+        let result = tests.testClaimGeneratorInfoOperatingSystemAlias()
+        XCTAssertTrue(result.passed, result.message)
+    }
+    func testMetadataPreservesUnknownFields() throws {
+        let result = tests.testMetadataPreservesUnknownFields()
+        XCTAssertTrue(result.passed, result.message)
+    }
     func testValidateAndLog() throws {
         XCTAssertTrue(tests.testValidateAndLog().passed)
     }
