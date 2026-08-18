@@ -1017,6 +1017,26 @@ final class ContextTests: XCTestCase {
         let result = tests.testSettingsFlowRoundtrip()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testProgressCallback() throws {
+        let result = tests.testProgressCallback()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolver() throws {
+        let result = tests.testHTTPResolver()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionHTTPResolver() throws {
+        let result = tests.testURLSessionHTTPResolver()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextWithSettingsAndCallbacks() throws {
+        let result = tests.testContextWithSettingsAndCallbacks()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Settings Definition Tests
