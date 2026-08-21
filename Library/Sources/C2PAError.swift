@@ -36,9 +36,10 @@ import Foundation
 /// - ``asyncSigningFailed``
 /// - ``manifestValidationFailed(_:)``
 public enum C2PAError: Error, LocalizedError {
-    /// An error reported by the underlying C2PA library.
+    /// An error reported by the underlying C2PA library, or by the Swift wrapper
+    /// while marshalling data across the C boundary.
     ///
-    /// - Parameter message: The error message from the Rust/C layer.
+    /// - Parameter message: The error message from the Rust/C layer or the wrapper.
     case api(_ message: String)
 
     /// An unexpected NULL pointer was encountered in the C API.
