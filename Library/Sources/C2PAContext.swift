@@ -85,10 +85,10 @@ public struct HTTPResponse: Sendable {
     }
 }
 
-private final class ProgressCallbackBox {
-    let onProgress: (ProgressUpdate) -> Void
+private final class ProgressCallbackBox: Sendable {
+    let onProgress: @Sendable (ProgressUpdate) -> Void
 
-    init(_ onProgress: @escaping (ProgressUpdate) -> Void) {
+    init(_ onProgress: @escaping @Sendable (ProgressUpdate) -> Void) {
         self.onProgress = onProgress
     }
 }
@@ -114,10 +114,10 @@ private final class HTTPResultBox: @unchecked Sendable {
     }
 }
 
-private final class HTTPResolverBox {
-    let resolve: (HTTPRequest) throws -> HTTPResponse
+private final class HTTPResolverBox: Sendable {
+    let resolve: @Sendable (HTTPRequest) throws -> HTTPResponse
 
-    init(_ resolve: @escaping (HTTPRequest) throws -> HTTPResponse) {
+    init(_ resolve: @escaping @Sendable (HTTPRequest) throws -> HTTPResponse) {
         self.resolve = resolve
     }
 }
@@ -130,7 +130,7 @@ private let progressTrampoline: ProgressCCallback = { context, phase, step, tota
     return 1
 }
 
-/// Resolves one request. May run on any thread, so the boxed closure must be thread-safe.
+/// Resolves one request. May run on any thread, which is why the boxed closure is `@Sendable`.
 private let httpResolverTrampoline: C2paHttpResolverCallback = { context, request, response in
     guard let context, let request, let response else { return 1 }
     let box = Unmanaged<HTTPResolverBox>.fromOpaque(context).takeUnretainedValue()
@@ -226,11 +226,13 @@ public final class C2PAContext {
     ///
     /// - Parameters:
     ///   - settings: The ``C2PASettings`` to configure this context with.
-    ///   - onProgress: Observes operation progress. Called synchronously at checkpoints;
-    ///     to stop an operation call ``cancel()`` rather than returning from here.
+    ///   - onProgress: Observes operation progress. Called synchronously at checkpoints,
+    ///     on whichever thread runs the operation; to stop an operation call ``cancel()``
+    ///     rather than returning from here.
     ///   - httpResolver: Resolves HTTP requests the SDK makes (remote manifests, OCSP,
     ///     timestamps). Called synchronously and possibly from any thread, so it must be
-    ///     thread-safe. Throwing fails the request.
+    ///     thread-safe; the `@Sendable` requirement enforces that under strict
+    ///     concurrency checking. Throwing fails the request.
     ///
     /// - Throws: ``C2PAError`` if the context cannot be created.
     ///
@@ -243,8 +245,8 @@ public final class C2PAContext {
     /// ```
     public convenience init(
         settings: C2PASettings? = nil,
-        onProgress: ((ProgressUpdate) -> Void)? = nil,
-        httpResolver: ((HTTPRequest) throws -> HTTPResponse)? = nil
+        onProgress: (@Sendable (ProgressUpdate) -> Void)? = nil,
+        httpResolver: (@Sendable (HTTPRequest) throws -> HTTPResponse)? = nil
     ) throws {
         guard settings != nil || onProgress != nil || httpResolver != nil else {
             self.init(ptr: try guardNotNull(c2pa_context_new()))
@@ -295,15 +297,22 @@ public final class C2PAContext {
     /// A separate initializer rather than a defaulted parameter, so a caller cannot pass
     /// both this and a custom `httpResolver`.
     ///
+    /// Each request blocks the calling thread until the session's completion handler
+    /// fires. That cannot deadlock against a session using the default delegate queue,
+    /// but a session created with `delegateQueue: .main` (or whose delegate does work on
+    /// the main thread) will deadlock if the operation runs on the main thread. Pass a
+    /// session whose delegate queue is a background queue.
+    ///
     /// - Parameters:
     ///   - settings: The ``C2PASettings`` to configure this context with.
     ///   - onProgress: Observes operation progress. See ``init(settings:onProgress:httpResolver:)``.
-    ///   - urlSession: The session used to perform each request.
+    ///   - urlSession: The session used to perform each request. Must not deliver its
+    ///     callbacks on the main queue.
     ///
     /// - Throws: ``C2PAError`` if the context cannot be created.
     public convenience init(
         settings: C2PASettings? = nil,
-        onProgress: ((ProgressUpdate) -> Void)? = nil,
+        onProgress: (@Sendable (ProgressUpdate) -> Void)? = nil,
         urlSession: URLSession
     ) throws {
         try self.init(
