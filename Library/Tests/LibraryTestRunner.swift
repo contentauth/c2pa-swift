@@ -1033,6 +1033,16 @@ final class ContextTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testHTTPResolverRemoteManifestFetch() throws {
+        let result = tests.testHTTPResolverRemoteManifestFetch()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverErrorFailsRead() throws {
+        let result = tests.testHTTPResolverErrorFailsRead()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testContextWithSettingsAndCallbacks() throws {
         let result = tests.testContextWithSettingsAndCallbacks()
         XCTAssertTrue(result.passed, result.message)

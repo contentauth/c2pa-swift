@@ -11,6 +11,27 @@
 import C2PA
 import Foundation
 
+/// Collects values delivered from native callbacks.
+///
+/// Callbacks fire synchronously on the thread running the operation, but a plain array
+/// would still be shared mutable state as far as the compiler is concerned.
+private final class CallbackRecorder<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Value] = []
+
+    func record(_ value: Value) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(value)
+    }
+
+    var recorded: [Value] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 // Context API tests - pure Swift implementation
 public final class ContextTests: TestImplementation {
 
@@ -124,23 +145,7 @@ public final class ContextTests: TestImplementation {
             try? FileManager.default.removeItem(at: destURL)
         }
 
-        // The callback fires synchronously on the signing thread, but a plain array would
-        // still be shared mutable state as far as the compiler is concerned.
-        final class Recorder: @unchecked Sendable {
-            private let lock = NSLock()
-            private var phases: [ProgressPhase] = []
-            func record(_ phase: ProgressPhase) {
-                lock.lock()
-                defer { lock.unlock() }
-                phases.append(phase)
-            }
-            var observed: [ProgressPhase] {
-                lock.lock()
-                defer { lock.unlock() }
-                return phases
-            }
-        }
-        let recorder = Recorder()
+        let recorder = CallbackRecorder<ProgressPhase>()
 
         do {
             guard let imageData = TestUtilities.loadPexelsTestImage() else {
@@ -157,35 +162,34 @@ public final class ContextTests: TestImplementation {
                 destination: try Stream(writeTo: destURL),
                 signer: try TestUtilities.createTestSigner())
 
-            let observed = recorder.observed
-            guard !observed.isEmpty else {
-                return .success(
-                    "Progress Callback", "[WARN] no progress updates observed (environment-dependent)")
-            }
+            let observed = recorder.recorded
             guard !observed.contains(.unknown) else {
                 return .failure(
                     "Progress Callback",
                     "a phase did not map to a known case, so the native enum has drifted")
             }
+            // A local sign always hashes the asset and signs the claim, so at least one of
+            // those phases must be reported if the callback is wired through at all.
+            guard observed.contains(.hashing) || observed.contains(.signing) else {
+                return .failure(
+                    "Progress Callback",
+                    "expected a hashing or signing phase, observed \(observed)")
+            }
             return .success("Progress Callback", "[PASS] observed \(observed.count) updates")
-        } catch let error as C2PAError {
-            return .success("Progress Callback", "[WARN] progress path callable (error: \(error))")
         } catch {
             return .failure("Progress Callback", "Error: \(error)")
         }
     }
 
     public func testHTTPResolver() -> TestResult {
+        // Installing a resolver on a fresh context is deterministic, so any error here is
+        // a failure. Driving the resolver is covered by testHTTPResolverRemoteManifestFetch.
         do {
-            // Installing the resolver is what is under test; whether the SDK makes a
-            // request during this operation is environment-dependent.
             let context = try C2PAContext(httpResolver: { request in
                 HTTPResponse(status: 200, body: Data("\(request.method) \(request.url)".utf8))
             })
             _ = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
             return .success("HTTP Resolver", "[PASS] custom HTTP resolver installed")
-        } catch let error as C2PAError {
-            return .success("HTTP Resolver", "[WARN] resolver path callable (error: \(error))")
         } catch {
             return .failure("HTTP Resolver", "Error: \(error)")
         }
@@ -196,8 +200,6 @@ public final class ContextTests: TestImplementation {
             let context = try C2PAContext(urlSession: .shared)
             _ = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
             return .success("URLSession HTTP Resolver", "[PASS] URLSession resolver installed")
-        } catch let error as C2PAError {
-            return .success("URLSession HTTP Resolver", "[WARN] resolver callable (error: \(error))")
         } catch {
             return .failure("URLSession HTTP Resolver", "Error: \(error)")
         }
@@ -215,11 +217,121 @@ public final class ContextTests: TestImplementation {
             try context.cancel()
             return .success(
                 "Context Settings And Callbacks", "[PASS] settings and both callbacks applied")
-        } catch let error as C2PAError {
-            return .success(
-                "Context Settings And Callbacks", "[WARN] path callable (error: \(error))")
         } catch {
             return .failure("Context Settings And Callbacks", "Error: \(error)")
+        }
+    }
+
+    /// The URL a remotely hosted manifest is declared at in the resolver tests.
+    private static let remoteManifestURL = URL(string: "https://example.com/manifests/test.c2pa")!
+
+    /// Signs the test image with the manifest hosted at ``remoteManifestURL`` rather than
+    /// embedded, so reading the result forces a fetch through the context's resolver.
+    ///
+    /// - Returns: The signed asset and the manifest store bytes a resolver should serve.
+    private func signWithRemoteManifest() throws -> (asset: Data, manifest: Data) {
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceURL = tempDir.appendingPathComponent("remote_src_\(UUID().uuidString).jpg")
+        let destURL = tempDir.appendingPathComponent("remote_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destURL)
+        }
+
+        guard let imageData = TestUtilities.loadPexelsTestImage() else {
+            throw C2PAError.api("Could not load test image")
+        }
+        try imageData.write(to: sourceURL)
+
+        let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+        builder.setNoEmbed()
+        try builder.setRemote(url: Self.remoteManifestURL)
+        let manifest = try builder.sign(
+            format: "image/jpeg",
+            source: try Stream(readFrom: sourceURL),
+            destination: try Stream(writeTo: destURL),
+            signer: try TestUtilities.createTestSigner())
+        return (try Data(contentsOf: destURL), manifest)
+    }
+
+    /// A context whose settings force remote manifests to be fetched, so the resolver is
+    /// guaranteed to be consulted rather than the read short-circuiting on the URL.
+    private func remoteFetchContext(
+        httpResolver: @escaping @Sendable (HTTPRequest) throws -> HTTPResponse
+    ) throws -> C2PAContext {
+        let settings = try C2PASettings(
+            json: "{\"version\": 1, \"verify\": {\"remote_manifest_fetch\": true}}")
+        return try C2PAContext(settings: settings, httpResolver: httpResolver)
+    }
+
+    public func testHTTPResolverRemoteManifestFetch() -> TestResult {
+        let name = "HTTP Resolver Remote Manifest Fetch"
+        do {
+            let (asset, manifest) = try signWithRemoteManifest()
+            let requests = CallbackRecorder<HTTPRequest>()
+            let context = try remoteFetchContext { request in
+                requests.record(request)
+                return HTTPResponse(status: 200, body: manifest)
+            }
+
+            let reader = try Reader(context: context, format: "image/jpeg", stream: try Stream(data: asset))
+            let json = try reader.json()
+
+            let seen = requests.recorded
+            guard seen.count == 1, let request = seen.first else {
+                return .failure(name, "expected exactly one resolver call, got \(seen.count)")
+            }
+            guard request.url == Self.remoteManifestURL else {
+                return .failure(name, "resolver called with \(request.url), expected \(Self.remoteManifestURL)")
+            }
+            guard request.method == "GET" else {
+                return .failure(name, "resolver called with method \(request.method), expected GET")
+            }
+            guard request.body == nil else {
+                return .failure(name, "GET request unexpectedly carried a body")
+            }
+            guard reader.remote() == Self.remoteManifestURL else {
+                return .failure(name, "reader.remote() was \(String(describing: reader.remote()))")
+            }
+            // The reader renders the manifest store it fetched, so the active manifest must
+            // be present and carry the assertion we signed with.
+            guard let store = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                  let active = store["active_manifest"] as? String,
+                  let manifests = store["manifests"] as? [String: Any],
+                  let manifest = manifests[active] as? [String: Any],
+                  let assertions = manifest["assertions"] as? [[String: Any]],
+                  assertions.contains(where: { $0["label"] as? String == "c2pa.test" })
+            else {
+                return .failure(name, "fetched manifest did not round-trip: \(json.prefix(300))")
+            }
+            return .success(name, "[PASS] resolver served \(manifest.count) byte manifest for \(request.url)")
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testHTTPResolverErrorFailsRead() -> TestResult {
+        let name = "HTTP Resolver Error Fails Read"
+        struct ResolverRefused: Error {}
+        do {
+            let (asset, _) = try signWithRemoteManifest()
+            let requests = CallbackRecorder<HTTPRequest>()
+            let context = try remoteFetchContext { request in
+                requests.record(request)
+                throw ResolverRefused()
+            }
+
+            do {
+                _ = try Reader(context: context, format: "image/jpeg", stream: try Stream(data: asset))
+                return .failure(name, "read succeeded although the resolver threw")
+            } catch is C2PAError {
+                guard requests.recorded.count == 1 else {
+                    return .failure(name, "resolver was called \(requests.recorded.count) times, expected 1")
+                }
+                return .success(name, "[PASS] resolver error surfaced as C2PAError from the read")
+            }
+        } catch {
+            return .failure(name, "Error: \(error)")
         }
     }
 
@@ -233,7 +345,9 @@ public final class ContextTests: TestImplementation {
             testProgressCallback(),
             testHTTPResolver(),
             testURLSessionHTTPResolver(),
-            testContextWithSettingsAndCallbacks()
+            testContextWithSettingsAndCallbacks(),
+            testHTTPResolverRemoteManifestFetch(),
+            testHTTPResolverErrorFailsRead()
         ]
     }
 }
