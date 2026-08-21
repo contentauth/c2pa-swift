@@ -58,3 +58,7 @@ coverage.txt
 coverage-*.lcov
 signing-server.log
 test-results.json
+
+# Claude
+CLAUDE.md
+.claude/*
