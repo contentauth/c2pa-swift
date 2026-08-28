@@ -366,6 +366,180 @@ public final class ManifestTests: TestImplementation {
         return .success("Action Fields", "[PASS] Action new fields and round-trip verified")
     }
 
+    public func testActionWireKeys() -> TestResult {
+        // Guards the JSON key names themselves, which a Swift-encode/Swift-decode
+        // round-trip cannot catch: c2pa-rs renames these fields to camelCase and
+        // defines no snake_case aliases, so a mismatch silently drops the values.
+        let action = Action(
+            action: "c2pa.created",
+            digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
+            softwareAgent: "TestApp"
+        )
+
+        let json: String
+        do {
+            json = String(data: try JSONEncoder().encode(action), encoding: .utf8) ?? ""
+        } catch {
+            return .failure("Action Wire Keys", "Encoding error: \(error)")
+        }
+
+        for key in ["\"digitalSourceType\"", "\"softwareAgent\""] where !json.contains(key) {
+            return .failure("Action Wire Keys", "Encoded JSON is missing \(key): \(json)")
+        }
+        for key in ["\"digital_source_type\"", "\"software_agent\""] where json.contains(key) {
+            return .failure("Action Wire Keys", "Encoded JSON uses snake_case \(key): \(json)")
+        }
+
+        // Decoding must accept the camelCase form c2pa-rs actually emits.
+        let wireJSON = """
+        {"action":"c2pa.created",\
+        "digitalSourceType":"http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",\
+        "softwareAgent":"TestApp"}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(Action.self, from: Data(wireJSON.utf8))
+            guard decoded.digitalSourceType?.hasSuffix("digitalCapture") == true else {
+                return .failure("Action Wire Keys", "digitalSourceType did not decode from camelCase key")
+            }
+            guard decoded.softwareAgentString == "TestApp" else {
+                return .failure("Action Wire Keys", "softwareAgent did not decode from camelCase key")
+            }
+        } catch {
+            return .failure("Action Wire Keys", "Decoding error: \(error)")
+        }
+
+        return .success("Action Wire Keys", "[PASS] camelCase JSON keys verified in both directions")
+    }
+
+    /// One model's encoded form paired with the wire keys c2pa-rs expects from it.
+    private struct WireKeyCheck {
+        let model: String
+        let encoded: Data
+        let expected: [String]
+    }
+
+    /// Normalizes a JSON key so that spellings differing only in case or underscores
+    /// collide: `digital_source_type` and `digitalSourceType` both become
+    /// `digitalsourcetype`.
+    private func normalizedKey(_ key: String) -> String {
+        key.replacingOccurrences(of: "_", with: "").lowercased()
+    }
+
+    /// Checks one model's encoded top-level keys against the wire names c2pa-rs uses.
+    ///
+    /// Reports a key whose spelling drifted (same name modulo case and underscores, but
+    /// not an exact match) separately from one that is missing outright, since the former
+    /// is the silent-data-loss case: c2pa-rs defines no aliases, so a drifted key is
+    /// dropped rather than rejected.
+    private func wireKeyMismatch(_ check: WireKeyCheck) -> String? {
+        let model = check.model
+        guard let object = try? JSONSerialization.jsonObject(with: check.encoded),
+            let dictionary = object as? [String: Any]
+        else {
+            return "\(model): encoded JSON is not an object"
+        }
+        let actual = Set(dictionary.keys)
+        for key in check.expected where !actual.contains(key) {
+            if let drifted = actual.first(where: { normalizedKey($0) == normalizedKey(key) }) {
+                return "\(model): expected key '\(key)' but found '\(drifted)'"
+            }
+            return "\(model): expected key '\(key)' is absent (encoded: \(actual.sorted()))"
+        }
+        return nil
+    }
+
+    public func testManifestWireKeyDrift() -> TestResult {
+        // The wire names c2pa-rs reads and writes, verified against its serde attributes.
+        // c2pa-rs uses two conventions: manifest assertions carry explicit camelCase
+        // renames, while settings structs keep Rust's snake_case default. The same concept
+        // is spelled differently in each, so these must be checked rather than inferred.
+        let hashedUri = HashedUri(hash: [0x01, 0x02], url: "self#jumbf=c2pa.assertions/c2pa.actions")
+        let statusCodes = StatusCodes(failure: [], informational: [], success: [])
+
+        var checks: [WireKeyCheck] = []
+        do {
+            checks.append(WireKeyCheck(
+                model: "Action",
+                encoded: try JSONEncoder().encode(
+                    Action(
+                        action: "c2pa.created",
+                        digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
+                        softwareAgent: "TestApp")),
+                expected: ["digitalSourceType", "softwareAgent"]))
+
+            checks.append(WireKeyCheck(
+                model: "Ingredient",
+                encoded: try JSONEncoder().encode(
+                    Ingredient(
+                        activeManifest: "urn:c2pa:test",
+                        dataTypes: [],
+                        documentId: "doc-1",
+                        informationalUri: "https://example.org/info",
+                        instanceId: "instance-1",
+                        validationResults: ValidationResults(activeManifest: statusCodes),
+                        validationStatus: [])),
+                expected: [
+                    "active_manifest", "data_types", "document_id", "informational_URI",
+                    "instance_id", "validation_results", "validation_status"
+                ]))
+
+            checks.append(WireKeyCheck(
+                model: "ValidationResults",
+                encoded: try JSONEncoder().encode(
+                    ValidationResults(activeManifest: statusCodes, ingredientDeltas: [])),
+                expected: ["activeManifest", "ingredientDeltas"]))
+
+            checks.append(WireKeyCheck(
+                model: "IngredientDeltaValidationResult",
+                encoded: try JSONEncoder().encode(
+                    IngredientDeltaValidationResult(
+                        ingredientAssertionUri: "self#jumbf=c2pa.assertions/c2pa.ingredient",
+                        validationDeltas: statusCodes)),
+                expected: ["ingredientAssertionURI", "validationDeltas"]))
+
+            checks.append(WireKeyCheck(
+                model: "Metadata",
+                encoded: try JSONEncoder().encode(
+                    Metadata(
+                        dataSource: DataSource(type: "signer"),
+                        dateTime: Date(timeIntervalSince1970: 0),
+                        reference: hashedUri,
+                        reviewRatings: [ReviewRating(explanation: "ok", value: 5)])),
+                expected: ["dataSource", "dateTime", "reviewRatings"]))
+
+            checks.append(WireKeyCheck(
+                model: "ClaimGeneratorInfo",
+                encoded: try JSONEncoder().encode(
+                    ClaimGeneratorInfo(name: "TestApp", operatingSystem: "iOS")),
+                expected: ["operating_system"]))
+
+            checks.append(WireKeyCheck(
+                model: "ResourceRef",
+                encoded: try JSONEncoder().encode(
+                    ResourceRef(dataTypes: [], format: "image/jpeg", identifier: "self#jumbf=c2pa")),
+                expected: ["data_types"]))
+
+            checks.append(WireKeyCheck(
+                model: "ManifestDefinition",
+                encoded: try JSONEncoder().encode(
+                    ManifestDefinition(
+                        claimGeneratorInfo: [ClaimGeneratorInfo(name: "TestApp")],
+                        instanceId: "instance-1",
+                        title: "wire-key drift check")),
+                expected: ["claim_generator_info", "claim_version", "instance_id"]))
+        } catch {
+            return .failure("Wire Key Drift", "Encoding error: \(error)")
+        }
+
+        for check in checks {
+            if let mismatch = wireKeyMismatch(check) {
+                return .failure("Wire Key Drift", mismatch)
+            }
+        }
+        return .success(
+            "Wire Key Drift", "[PASS] \(checks.count) models match their c2pa-rs wire keys")
+    }
+
     public func testValidateAndLog() -> TestResult {
         let manifest = ManifestDefinition(
             claimGeneratorInfo: [ClaimGeneratorInfo()],
@@ -734,6 +908,8 @@ public final class ManifestTests: TestImplementation {
             testNewPredefinedActions(),
             testActionV2SoftwareAgent(),
             testActionNewFields(),
+            testActionWireKeys(),
+            testManifestWireKeyDrift(),
             testValidateAndLog(),
             testCustomAssertionLabelValidation(),
             testCreatedFactory(),

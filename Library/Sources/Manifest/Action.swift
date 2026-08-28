@@ -22,10 +22,13 @@ import Foundation
 /// - SeeAlso: [Actions Reference](https://opensource.contentauthenticity.org/docs/manifest/writing/assertions-actions#actions)
 public struct Action: Codable, Equatable {
 
+    /// The JSON keys are camelCase, matching the wire format c2pa-rs reads and writes.
+    /// It defines no snake_case aliases, so a mismatch here is silently dropped rather
+    /// than reported as an error.
     public enum CodingKeys: String, CodingKey {
         case action
-        case digitalSourceType = "digital_source_type"
-        case softwareAgent = "software_agent"
+        case digitalSourceType
+        case softwareAgent
         case parameters
         case when
         case changes
