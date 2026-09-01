@@ -22,9 +22,10 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
-        .package(url: "https://github.com/apple/swift-certificates.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-asn1.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
+        .package(url: "https://github.com/apple/swift-certificates.git", from: "1.19.4"),
+        .package(url: "https://github.com/apple/swift-asn1.git", from: "1.7.1"),
+        // 4.5.1 is the lowest version outside the CVE-2026-43823 range (>= 3.2.0, <= 4.5.0).
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.1")
     ],
     targets: [
         .executableTarget(
