@@ -448,13 +448,15 @@ public final class Signer {
         }
         let claimPtr = try claimSigner.livePtr()
         let identityPtr = try identitySigner.livePtr()
-        // The native call invalidates both inputs unconditionally, so mark them consumed
-        // before it runs: on failure that leaks rather than risking a double free.
-        claimSigner.consumed = true
-        identitySigner.consumed = true
         let raw = try withCStringArray(referencedAssertions) { refs in
             try withCStringArray(roles) { roleList in
-                try guardNotNull(
+                // The native call invalidates both inputs unconditionally, so mark them
+                // consumed immediately before it runs: on failure that leaks rather than
+                // risking a double free. Marking them any earlier would also leak them when
+                // withCStringArray throws before the native call ever happens.
+                claimSigner.consumed = true
+                identitySigner.consumed = true
+                return try guardNotNull(
                     c2pa_identity_signer_create(claimPtr, identityPtr, refs, roleList))
             }
         }

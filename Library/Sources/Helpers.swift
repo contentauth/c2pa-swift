@@ -111,14 +111,22 @@ func manifestData(length: Int64, pointer: UnsafePointer<UInt8>?) -> Data {
 /// Invokes `body` with a NULL-terminated C string array built from `strings`
 /// (or `nil` when `strings` is empty). The array and its strings are valid only
 /// for the duration of `body`.
+///
+/// - Throws: ``C2PAError`` if any string could not be duplicated. A failed `strdup`
+///   would otherwise leave a NULL in the middle of the array, which the C layer reads
+///   as the terminator and so silently truncates the list.
 func withCStringArray<R>(
     _ strings: [String],
     _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws -> R
-) rethrows -> R {
+) throws -> R {
     guard !strings.isEmpty else { return try body(nil) }
     var cStrings: [UnsafePointer<CChar>?] = strings.map { UnsafePointer(strdup($0)) }
     cStrings.append(nil)
+    // Installed before the allocation check so partial allocations are freed when it throws.
     defer { for p in cStrings where p != nil { free(UnsafeMutablePointer(mutating: p)) } }
+    guard !cStrings.dropLast().contains(where: { $0 == nil }) else {
+        throw C2PAError.api("Failed to allocate C string array")
+    }
     return try cStrings.withUnsafeBufferPointer { try body($0.baseAddress) }
 }
 
