@@ -32,6 +32,67 @@ private final class CallbackRecorder<Value>: @unchecked Sendable {
     }
 }
 
+/// Serves canned HTTP responses inside a `URLSession` without touching the network, so the
+/// `URLSession`-backed resolver can be exercised end to end. Only sessions that list this in
+/// `URLSessionConfiguration.protocolClasses` are affected.
+private final class StubURLProtocol: URLProtocol {
+    fileprivate final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var status = 200
+        private var body = Data()
+        private var requests: [URLRequest] = []
+
+        func stub(status: Int, body: Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.status = status
+            self.body = body
+            requests = []
+        }
+
+        func response() -> (status: Int, body: Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (status, body)
+        }
+
+        func record(_ request: URLRequest) {
+            lock.lock()
+            defer { lock.unlock() }
+            requests.append(request)
+        }
+
+        var recorded: [URLRequest] {
+            lock.lock()
+            defer { lock.unlock() }
+            return requests
+        }
+    }
+
+    fileprivate static let state = State()
+
+    override static func canInit(with request: URLRequest) -> Bool { true }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.state.record(request)
+        let stub = Self.state.response()
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url, statusCode: stub.status, httpVersion: "HTTP/1.1", headerFields: nil)
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !stub.body.isEmpty { client?.urlProtocol(self, didLoad: stub.body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 // Context API tests - pure Swift implementation
 public final class ContextTests: TestImplementation {
 
@@ -312,7 +373,12 @@ public final class ContextTests: TestImplementation {
 
     public func testHTTPResolverErrorFailsRead() -> TestResult {
         let name = "HTTP Resolver Error Fails Read"
-        struct ResolverRefused: Error {}
+        // Carries a distinctive localized message so the assertion below can tell the
+        // resolver's own error text apart from a reflected description of the error case.
+        struct ResolverRefused: LocalizedError {
+            static let message = "resolver refused this request on purpose"
+            var errorDescription: String? { Self.message }
+        }
         do {
             let (asset, _) = try signWithRemoteManifest()
             let requests = CallbackRecorder<HTTPRequest>()
@@ -324,11 +390,127 @@ public final class ContextTests: TestImplementation {
             do {
                 _ = try Reader(context: context, format: "image/jpeg", stream: try Stream(data: asset))
                 return .failure(name, "read succeeded although the resolver threw")
-            } catch is C2PAError {
+            } catch let error as C2PAError {
                 guard requests.recorded.count == 1 else {
                     return .failure(name, "resolver was called \(requests.recorded.count) times, expected 1")
                 }
-                return .success(name, "[PASS] resolver error surfaced as C2PAError from the read")
+                let text = error.localizedDescription
+                guard text.contains(ResolverRefused.message) else {
+                    return .failure(name, "resolver error text did not reach the caller: \(text)")
+                }
+                return .success(name, "[PASS] resolver error text surfaced: \(text)")
+            }
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testHTTPResolverRejectsOutOfRangeStatus() -> TestResult {
+        let name = "HTTP Resolver Out Of Range Status"
+        do {
+            let (asset, manifest) = try signWithRemoteManifest()
+            let context = try remoteFetchContext { _ in
+                // Past Int32: narrowing this unguarded would trap inside the C callback,
+                // aborting the process where no Swift frame could catch it.
+                HTTPResponse(status: Int(Int32.max) + 1, body: manifest)
+            }
+
+            do {
+                _ = try Reader(context: context, format: "image/jpeg", stream: try Stream(data: asset))
+                return .failure(name, "read succeeded although the status was out of range")
+            } catch let error as C2PAError {
+                let text = error.localizedDescription
+                guard text.contains("out of range") else {
+                    return .failure(name, "unexpected error for an out-of-range status: \(text)")
+                }
+                return .success(name, "[PASS] out-of-range status refused: \(text)")
+            }
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testURLSessionResolverRejectsMainQueueSession() -> TestResult {
+        let name = "URLSession Resolver Rejects Main Queue"
+        // Blocking on a session that completes on the main queue deadlocks whenever the
+        // operation itself runs there, so the initializer refuses it up front.
+        let session = URLSession(configuration: .ephemeral, delegate: nil, delegateQueue: .main)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try C2PAContext(urlSession: session)
+            return .failure(name, "context was created with a main-queue session")
+        } catch let error as C2PAError {
+            guard error.localizedDescription.contains("main queue") else {
+                return .failure(name, "unexpected error: \(error.localizedDescription)")
+            }
+            return .success(name, "[PASS] main-queue session refused")
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testURLSessionResolverFetchesRemoteManifest() -> TestResult {
+        let name = "URLSession Resolver Remote Manifest Fetch"
+        do {
+            let (asset, manifest) = try signWithRemoteManifest()
+            StubURLProtocol.state.stub(status: 200, body: manifest)
+
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [StubURLProtocol.self]
+            // No delegate queue, so URLSession makes its own background one and the
+            // blocking resolver has something to be woken by.
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+
+            let settings = try C2PASettings(
+                json: "{\"version\": 1, \"verify\": {\"remote_manifest_fetch\": true}}")
+            let context = try C2PAContext(settings: settings, urlSession: session)
+
+            let reader = try Reader(
+                context: context, format: "image/jpeg", stream: try Stream(data: asset))
+            let json = try reader.json()
+
+            let seen = StubURLProtocol.state.recorded
+            guard seen.count == 1, let request = seen.first else {
+                return .failure(name, "expected exactly one HTTP request, got \(seen.count)")
+            }
+            guard request.url == Self.remoteManifestURL else {
+                return .failure(name, "requested \(String(describing: request.url))")
+            }
+            guard request.httpMethod == "GET" else {
+                return .failure(name, "used method \(String(describing: request.httpMethod))")
+            }
+            guard let store = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                  let active = store["active_manifest"] as? String,
+                  let manifests = store["manifests"] as? [String: Any],
+                  let fetched = manifests[active] as? [String: Any],
+                  let assertions = fetched["assertions"] as? [[String: Any]],
+                  assertions.contains(where: { $0["label"] as? String == "c2pa.test" })
+            else {
+                return .failure(name, "fetched manifest did not round-trip: \(json.prefix(300))")
+            }
+            return .success(name, "[PASS] URLSession resolver served \(manifest.count) bytes")
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testHTTPResolverEmptyResponseBody() -> TestResult {
+        let name = "HTTP Resolver Empty Response Body"
+        do {
+            let (asset, _) = try signWithRemoteManifest()
+            // A zero-length body sends a null pointer across the boundary. The read cannot
+            // succeed without a manifest; what matters is that it fails rather than crashes.
+            let context = try remoteFetchContext { _ in
+                HTTPResponse(status: 204, body: Data())
+            }
+
+            do {
+                _ = try Reader(
+                    context: context, format: "image/jpeg", stream: try Stream(data: asset))
+                return .failure(name, "read succeeded although the resolver served no manifest")
+            } catch is C2PAError {
+                return .success(name, "[PASS] empty response body surfaced as an error")
             }
         } catch {
             return .failure(name, "Error: \(error)")
@@ -347,7 +529,11 @@ public final class ContextTests: TestImplementation {
             testURLSessionHTTPResolver(),
             testContextWithSettingsAndCallbacks(),
             testHTTPResolverRemoteManifestFetch(),
-            testHTTPResolverErrorFailsRead()
+            testHTTPResolverErrorFailsRead(),
+            testHTTPResolverRejectsOutOfRangeStatus(),
+            testURLSessionResolverRejectsMainQueueSession(),
+            testURLSessionResolverFetchesRemoteManifest(),
+            testHTTPResolverEmptyResponseBody()
         ]
     }
 }

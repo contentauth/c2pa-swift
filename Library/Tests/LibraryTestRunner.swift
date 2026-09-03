@@ -1043,6 +1043,26 @@ final class ContextTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testHTTPResolverRejectsOutOfRangeStatus() throws {
+        let result = tests.testHTTPResolverRejectsOutOfRangeStatus()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionResolverRejectsMainQueueSession() throws {
+        let result = tests.testURLSessionResolverRejectsMainQueueSession()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionResolverFetchesRemoteManifest() throws {
+        let result = tests.testURLSessionResolverFetchesRemoteManifest()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverEmptyResponseBody() throws {
+        let result = tests.testHTTPResolverEmptyResponseBody()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testContextWithSettingsAndCallbacks() throws {
         let result = tests.testContextWithSettingsAndCallbacks()
         XCTAssertTrue(result.passed, result.message)

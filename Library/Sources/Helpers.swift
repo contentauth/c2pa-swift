@@ -30,6 +30,16 @@ func lastC2PAError() -> String {
     return String(cString: p)
 }
 
+/// Records a failure message for the native layer to read back.
+///
+/// The C layer parses `"ErrorType: message"`, splitting on the first `": "` only, and maps
+/// an unrecognised type to `Other`. Always pass a valid type prefix: an unprefixed message
+/// that happens to contain `": "` would have its first segment read as a type tag.
+@inline(__always)
+func setLastC2PAError(_ message: String) {
+    _ = message.withCString { c2pa_error_set_last($0) }
+}
+
 @inline(__always)
 func guardNotNull<T>(_ p: UnsafeMutablePointer<T>?) throws -> UnsafeMutablePointer<T> {
     if let p { return p }

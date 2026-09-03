@@ -93,27 +93,6 @@ private final class ProgressCallbackBox: Sendable {
     }
 }
 
-/// Carries a resolver result across the `URLSession` completion boundary.
-///
-/// The completion handler is `@Sendable`, so the result cannot be written into captured
-/// local state. Mirrors the pattern already used by ``WebServiceSigner``.
-private final class HTTPResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var result: Result<HTTPResponse, Error>?
-
-    func set(_ value: Result<HTTPResponse, Error>) {
-        lock.lock()
-        defer { lock.unlock() }
-        result = value
-    }
-
-    func get() -> Result<HTTPResponse, Error>? {
-        lock.lock()
-        defer { lock.unlock() }
-        return result
-    }
-}
-
 private final class HTTPResolverBox: Sendable {
     let resolve: @Sendable (HTTPRequest) throws -> HTTPResponse
 
@@ -122,59 +101,94 @@ private final class HTTPResolverBox: Sendable {
     }
 }
 
+/// `ProgressCCallback` returns non-zero to continue the operation and zero to cancel.
+private let progressContinue: Int32 = 1
+
+/// `C2paHttpResolverCallback` returns zero for success and non-zero for failure, the opposite
+/// polarity to ``progressContinue``. The two trampolines sit side by side, so both use names
+/// rather than bare literals: `1` means "carry on" in one and "gave up" in the other.
+private let resolverSucceeded: Int32 = 0
+private let resolverFailed: Int32 = 1
+
 /// Observes progress and always continues; cancellation is via ``C2PAContext/cancel()``.
 private let progressTrampoline: ProgressCCallback = { context, phase, step, total in
-    guard let context else { return 1 }
+    guard let context else { return progressContinue }
     let box = Unmanaged<ProgressCallbackBox>.fromOpaque(context).takeUnretainedValue()
     box.onProgress(ProgressUpdate(phase: ProgressPhase(phase), step: step, total: total))
-    return 1
+    return progressContinue
 }
 
 /// Resolves one request. May run on any thread, which is why the boxed closure is `@Sendable`.
+///
+/// Returning non-zero signals failure, and the contract requires setting the error message
+/// first: the native side reads it on this same thread as soon as the callback returns.
 private let httpResolverTrampoline: C2paHttpResolverCallback = { context, request, response in
-    guard let context, let request, let response else { return 1 }
+    guard let context, let request, let response else {
+        setLastC2PAError("NullParameter: HTTP resolver received a null pointer")
+        return resolverFailed
+    }
     let box = Unmanaged<HTTPResolverBox>.fromOpaque(context).takeUnretainedValue()
     let incoming = request.pointee
 
     guard let urlPtr = incoming.url, let url = URL(string: String(cString: urlPtr)) else {
-        _ = "Invalid request URL".withCString { c2pa_error_set_last($0) }
-        return 1
+        setLastC2PAError("Other: invalid HTTP request URL")
+        return resolverFailed
     }
 
-    let method = incoming.method.map { String(cString: $0) } ?? "GET"
+    // The native side always sends a method, so this refuses rather than guessing: a silent
+    // fallback to GET would turn a POST (OCSP, timestamping) into a request the server
+    // rejects, surfacing far from the cause.
+    guard let methodPtr = incoming.method else {
+        setLastC2PAError("NullParameter: HTTP request has no method")
+        return resolverFailed
+    }
+    let method = String(cString: methodPtr)
     var headers: [String: String] = [:]
     if let rawHeaders = incoming.headers {
         for line in String(cString: rawHeaders).split(separator: "\n") {
             guard let separator = line.firstIndex(of: ":") else { continue }
-            let name = String(line[..<separator]).trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+            // Newlines are in the trim set too: the C layer documents "\n"-delimited headers,
+            // but CRLF would otherwise leave a trailing "\r" on every value.
+            let name = String(line[..<separator])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(line[line.index(after: separator)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty { headers[name] = value }
         }
     }
-    let body: Data? = (incoming.body != nil && incoming.body_len > 0)
-        ? Data(bytes: incoming.body!, count: Int(incoming.body_len)) : nil
+    let body: Data? = incoming.body.flatMap { bytes in
+        incoming.body_len > 0 ? Data(bytes: bytes, count: Int(incoming.body_len)) : nil
+    }
 
     do {
         let result = try box.resolve(
             HTTPRequest(url: url, method: method, headers: headers, body: body))
-        response.pointee.status = Int32(result.status)
+        // Int32(_:) would trap here, killing the process from inside a C callback where no
+        // Swift frame can catch it. The status is caller-supplied, so refuse it instead.
+        guard let status = Int32(exactly: result.status) else {
+            setLastC2PAError("Other: HTTP response status \(result.status) is out of range")
+            return resolverFailed
+        }
+        response.pointee.status = status
         if result.body.isEmpty {
+            // Both fields must move together. Rust skips its free when body_len is zero, so a
+            // non-null pointer paired with a zero length would leak the allocation.
             response.pointee.body = nil
             response.pointee.body_len = 0
         } else {
             // Rust takes ownership of this allocation and frees it.
             guard let buffer = malloc(result.body.count)?.assumingMemoryBound(to: UInt8.self) else {
-                _ = "Failed to allocate response body".withCString { c2pa_error_set_last($0) }
-                return 1
+                setLastC2PAError("Other: failed to allocate the HTTP response body")
+                return resolverFailed
             }
             result.body.copyBytes(to: buffer, count: result.body.count)
             response.pointee.body = buffer
             response.pointee.body_len = UInt(result.body.count)
         }
-        return 0
+        return resolverSucceeded
     } catch {
-        _ = String(describing: error).withCString { c2pa_error_set_last($0) }
-        return 1
+        setLastC2PAError("Other: \(error.localizedDescription)")
+        return resolverFailed
     }
 }
 
@@ -277,7 +291,11 @@ public final class C2PAContext {
                     _ = try guardNonNegative(
                         Int64(c2pa_context_builder_set_http_resolver(builder, resolver)))
                 } catch {
-                    // The resolver is only consumed on success, so release it ourselves.
+                    // Ownership passes only once the native call's own pointer checks have
+                    // passed, so a failure here means the resolver was not taken and is ours
+                    // to release. Note the header states consumption unconditionally, which is
+                    // stricter than the implementation: verified against c2pa-c-ffi-v0.90.0,
+                    // and worth re-checking whenever C2PA_VERSION moves.
                     _ = c2pa_free(resolver)
                     throw error
                 }
@@ -303,18 +321,30 @@ public final class C2PAContext {
     /// the main thread) will deadlock if the operation runs on the main thread. Pass a
     /// session whose delegate queue is a background queue.
     ///
+    /// A session delivering on `OperationQueue.main` is rejected here rather than left to
+    /// hang at first use. A delegate that merely hops to the main thread itself cannot be
+    /// detected, so the caller still owns that half of the requirement.
+    ///
     /// - Parameters:
     ///   - settings: The ``C2PASettings`` to configure this context with.
     ///   - onProgress: Observes operation progress. See ``init(settings:onProgress:httpResolver:)``.
     ///   - urlSession: The session used to perform each request. Must not deliver its
-    ///     callbacks on the main queue.
+    ///     callbacks on the main queue, and must stay valid for as long as this context
+    ///     does: an invalidated session hands back tasks whose completion handler never
+    ///     runs, which would block a resolving thread indefinitely. Request timeouts are
+    ///     taken from the session's own configuration; nothing is imposed on top.
     ///
-    /// - Throws: ``C2PAError`` if the context cannot be created.
+    /// - Throws: ``C2PAError`` if `urlSession` delivers on the main queue, or if the context
+    ///   cannot be created.
     public convenience init(
         settings: C2PASettings? = nil,
         onProgress: (@Sendable (ProgressUpdate) -> Void)? = nil,
         urlSession: URLSession
     ) throws {
+        guard urlSession.delegateQueue !== OperationQueue.main else {
+            throw C2PAError.api(
+                "URLSession delivers on the main queue, which would deadlock the resolver")
+        }
         try self.init(
             settings: settings,
             onProgress: onProgress,
@@ -328,30 +358,40 @@ public final class C2PAContext {
 
                 // The native resolver call is synchronous, so block until the task lands.
                 // URLSession delivers on its own queue, so waiting here cannot deadlock it.
-                let resultBox = HTTPResultBox()
+                //
+                // The wait is deliberately unbounded. Timeout policy belongs to the caller's
+                // URLSessionConfiguration, which already carries both knobs, and this has no
+                // basis for overriding them: timeoutIntervalForRequest is an idle timeout, so
+                // a slow but progressing transfer legitimately outlives it.
+                //
+                // The signal/wait pair orders every access to `result`, which is what makes
+                // the unchecked capture below sound.
                 let semaphore = DispatchSemaphore(value: 0)
+                nonisolated(unsafe) var result: Result<HTTPResponse, Error>?
                 let task = urlSession.dataTask(with: urlRequest) { data, response, error in
                     if let error {
-                        resultBox.set(.failure(
-                            C2PAError.api("HTTP resolver request failed: \(error)")))
+                        result = .failure(
+                            C2PAError.api("HTTP resolver request failed: \(error)"))
+                    } else if let http = response as? HTTPURLResponse {
+                        result = .success(HTTPResponse(
+                            status: http.statusCode, body: data ?? Data()))
                     } else {
-                        resultBox.set(.success(HTTPResponse(
-                            status: (response as? HTTPURLResponse)?.statusCode ?? 0,
-                            body: data ?? Data())))
+                        // Every request the SDK makes here is HTTP. Reporting status 0 for
+                        // anything else would look like a successful fetch of nothing.
+                        result = .failure(C2PAError.api(
+                            "HTTP resolver got a non-HTTP response for \(request.url)"))
                     }
                     semaphore.signal()
                 }
                 task.resume()
                 semaphore.wait()
 
-                switch resultBox.get() {
-                case .success(let response):
-                    return response
-                case .failure(let error):
-                    throw error
-                case .none:
+                // Unreachable: the semaphore is only signalled after `result` is set. Present
+                // because the compiler cannot see that.
+                guard let result else {
                     throw C2PAError.api("HTTP resolver produced no response")
                 }
+                return try result.get()
             })
     }
 
