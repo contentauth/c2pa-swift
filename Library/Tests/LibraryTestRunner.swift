@@ -1023,6 +1023,11 @@ final class ContextTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testProgressCallbackCancelsOperation() throws {
+        let result = tests.testProgressCallbackCancelsOperation()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testHTTPResolver() throws {
         let result = tests.testHTTPResolver()
         XCTAssertTrue(result.passed, result.message)

@@ -56,6 +56,20 @@ public struct ProgressUpdate: Sendable {
     public let total: UInt32
 }
 
+/// What a progress observer wants the operation to do next.
+///
+/// Mirrors the native progress callback's return value, so a caller can stop the operation
+/// it is watching without reaching for ``C2PAContext/cancel()``, which stops every operation
+/// on the context.
+public enum ProgressDisposition: Sendable {
+    /// Let the operation carry on.
+    case `continue`
+
+    /// Ask the SDK to stop. It returns an error at its next safe checkpoint, so work in
+    /// flight is not abandoned mid-write.
+    case cancel
+}
+
 /// An HTTP request the SDK needs resolved (remote manifest, OCSP, or timestamp fetch).
 public struct HTTPRequest: Sendable {
     /// The request URL.
@@ -86,9 +100,9 @@ public struct HTTPResponse: Sendable {
 }
 
 private final class ProgressCallbackBox: Sendable {
-    let onProgress: @Sendable (ProgressUpdate) -> Void
+    let onProgress: @Sendable (ProgressUpdate) -> ProgressDisposition
 
-    init(_ onProgress: @escaping @Sendable (ProgressUpdate) -> Void) {
+    init(_ onProgress: @escaping @Sendable (ProgressUpdate) -> ProgressDisposition) {
         self.onProgress = onProgress
     }
 }
@@ -103,6 +117,7 @@ private final class HTTPResolverBox: Sendable {
 
 /// `ProgressCCallback` returns non-zero to continue the operation and zero to cancel.
 private let progressContinue: Int32 = 1
+private let progressCancel: Int32 = 0
 
 /// `C2paHttpResolverCallback` returns zero for success and non-zero for failure, the opposite
 /// polarity to ``progressContinue``. The two trampolines sit side by side, so both use names
@@ -110,12 +125,17 @@ private let progressContinue: Int32 = 1
 private let resolverSucceeded: Int32 = 0
 private let resolverFailed: Int32 = 1
 
-/// Observes progress and always continues; cancellation is via ``C2PAContext/cancel()``.
+/// Relays the observer's decision to the native callback, which reads zero as "stop".
+///
+/// With no observer there is nothing to ask, so the operation continues.
 private let progressTrampoline: ProgressCCallback = { context, phase, step, total in
     guard let context else { return progressContinue }
     let box = Unmanaged<ProgressCallbackBox>.fromOpaque(context).takeUnretainedValue()
-    box.onProgress(ProgressUpdate(phase: ProgressPhase(phase), step: step, total: total))
-    return progressContinue
+    let update = ProgressUpdate(phase: ProgressPhase(phase), step: step, total: total)
+    switch box.onProgress(update) {
+    case .continue: return progressContinue
+    case .cancel: return progressCancel
+    }
 }
 
 /// Resolves one request. May run on any thread, which is why the boxed closure is `@Sendable`.
@@ -207,6 +227,7 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
 ///
 /// ### Controlling Operations
 /// - ``cancel()``
+/// - ``ProgressDisposition``
 ///
 /// ## Example
 ///
@@ -240,9 +261,10 @@ public final class C2PAContext {
     ///
     /// - Parameters:
     ///   - settings: The ``C2PASettings`` to configure this context with.
-    ///   - onProgress: Observes operation progress. Called synchronously at checkpoints,
-    ///     on whichever thread runs the operation; to stop an operation call ``cancel()``
-    ///     rather than returning from here.
+    ///   - onProgress: Observes operation progress and decides whether it continues.
+    ///     Called synchronously at checkpoints, on whichever thread runs the operation.
+    ///     Return ``ProgressDisposition/cancel`` to stop just this operation, or use
+    ///     ``cancel()`` to stop every operation on the context at once.
     ///   - httpResolver: Resolves HTTP requests the SDK makes (remote manifests, OCSP,
     ///     timestamps). Called synchronously and possibly from any thread, so it must be
     ///     thread-safe; the `@Sendable` requirement enforces that under strict
@@ -255,11 +277,12 @@ public final class C2PAContext {
     /// ```swift
     /// let context = try C2PAContext(settings: settings) { update in
     ///     print("\(update.phase) \(update.step)/\(update.total)")
+    ///     return userTappedStop ? .cancel : .continue
     /// }
     /// ```
     public convenience init(
         settings: C2PASettings? = nil,
-        onProgress: (@Sendable (ProgressUpdate) -> Void)? = nil,
+        onProgress: (@Sendable (ProgressUpdate) -> ProgressDisposition)? = nil,
         httpResolver: (@Sendable (HTTPRequest) throws -> HTTPResponse)? = nil
     ) throws {
         guard settings != nil || onProgress != nil || httpResolver != nil else {
@@ -338,7 +361,7 @@ public final class C2PAContext {
     ///   cannot be created.
     public convenience init(
         settings: C2PASettings? = nil,
-        onProgress: (@Sendable (ProgressUpdate) -> Void)? = nil,
+        onProgress: (@Sendable (ProgressUpdate) -> ProgressDisposition)? = nil,
         urlSession: URLSession
     ) throws {
         guard urlSession.delegateQueue !== OperationQueue.main else {
@@ -397,8 +420,15 @@ public final class C2PAContext {
 
     deinit { _ = c2pa_free(ptr) }
 
-    /// Requests cancellation of any in-progress signing or reading operation
-    /// running on this context.
+    /// Requests cancellation of every in-progress signing or reading operation on this
+    /// context.
+    ///
+    /// The scope is the context, not one operation. A context is shareable and one may back
+    /// several ``Builder`` and ``Reader`` instances at once, so this reaches all of them.
+    /// Give an operation its own context when it has to be cancellable on its own.
+    ///
+    /// To stop a single operation instead, return ``ProgressDisposition/cancel`` from the
+    /// progress observer passed to ``init(settings:onProgress:httpResolver:)``.
     ///
     /// - Throws: ``C2PAError`` if the cancellation request fails.
     public func cancel() throws {

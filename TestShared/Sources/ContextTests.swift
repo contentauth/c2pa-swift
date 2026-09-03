@@ -214,7 +214,10 @@ public final class ContextTests: TestImplementation {
             }
             try imageData.write(to: sourceURL)
 
-            let context = try C2PAContext(onProgress: { recorder.record($0.phase) })
+            let context = try C2PAContext(onProgress: {
+                recorder.record($0.phase)
+                return .continue
+            })
             let builder = try Builder(
                 context: context, manifestJSON: TestUtilities.createTestManifestJSON())
             _ = try builder.sign(
@@ -239,6 +242,52 @@ public final class ContextTests: TestImplementation {
             return .success("Progress Callback", "[PASS] observed \(observed.count) updates")
         } catch {
             return .failure("Progress Callback", "Error: \(error)")
+        }
+    }
+
+    public func testProgressCallbackCancelsOperation() -> TestResult {
+        let name = "Progress Callback Cancels Operation"
+        let tempDir = FileManager.default.temporaryDirectory
+        let sourceURL = tempDir.appendingPathComponent("cancel_src_\(UUID().uuidString).jpg")
+        let destURL = tempDir.appendingPathComponent("cancel_dst_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destURL)
+        }
+
+        let recorder = CallbackRecorder<ProgressPhase>()
+
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure(name, "Could not load test image")
+            }
+            try imageData.write(to: sourceURL)
+
+            // Cancels at the first checkpoint, which is what distinguishes this from
+            // context-wide cancel(): only this operation is asked to stop.
+            let context = try C2PAContext(onProgress: {
+                recorder.record($0.phase)
+                return .cancel
+            })
+            let builder = try Builder(
+                context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+
+            do {
+                _ = try builder.sign(
+                    format: "image/jpeg",
+                    source: try Stream(readFrom: sourceURL),
+                    destination: try Stream(writeTo: destURL),
+                    signer: try TestUtilities.createTestSigner())
+                return .failure(name, "sign completed although the observer asked to cancel")
+            } catch is C2PAError {
+                guard !recorder.recorded.isEmpty else {
+                    return .failure(name, "sign failed before any progress was reported")
+                }
+                return .success(
+                    name, "[PASS] cancelled after \(recorder.recorded.count) update(s)")
+            }
+        } catch {
+            return .failure(name, "Error: \(error)")
         }
     }
 
@@ -273,7 +322,7 @@ public final class ContextTests: TestImplementation {
             let settings = try C2PASettings(json: "{\"version\": 1}")
             let context = try C2PAContext(
                 settings: settings,
-                onProgress: { _ in },
+                onProgress: { _ in .continue },
                 httpResolver: { _ in HTTPResponse(status: 204, body: Data()) })
             try context.cancel()
             return .success(
@@ -525,6 +574,7 @@ public final class ContextTests: TestImplementation {
             testBuilderFromContext(),
             testSettingsFlowRoundtrip(),
             testProgressCallback(),
+            testProgressCallbackCancelsOperation(),
             testHTTPResolver(),
             testURLSessionHTTPResolver(),
             testContextWithSettingsAndCallbacks(),
