@@ -540,6 +540,99 @@ public final class ManifestTests: TestImplementation {
             "Wire Key Drift", "[PASS] \(checks.count) models match their c2pa-rs wire keys")
     }
 
+    public func testClaimGeneratorInfoPreservesUnknownFields() -> TestResult {
+        // c2pa-rs keeps unrecognized members in a flattened map, so a manifest written by
+        // another generator must survive a decode/encode cycle here rather than losing them.
+        let source = """
+        {"name":"Other/1.0","operating_system":"iOS 18",\
+        "vendorSpecific":{"channel":"beta"},"buildCount":7}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(ClaimGeneratorInfo.self, from: Data(source.utf8))
+            guard let extras = decoded.additionalFields else {
+                return .failure("CGI Unknown Fields", "additionalFields should not be nil")
+            }
+            guard Set(extras.keys) == ["vendorSpecific", "buildCount"] else {
+                return .failure("CGI Unknown Fields", "unexpected extras: \(extras.keys.sorted())")
+            }
+            guard decoded.additionalFields?["name"] == nil else {
+                return .failure("CGI Unknown Fields", "a modeled key leaked into additionalFields")
+            }
+
+            let reencoded = try JSONEncoder().encode(decoded)
+            let json = String(data: reencoded, encoding: .utf8) ?? ""
+            for key in ["\"vendorSpecific\"", "\"buildCount\"", "\"operating_system\""] where !json.contains(key) {
+                return .failure("CGI Unknown Fields", "re-encoded JSON dropped \(key): \(json)")
+            }
+
+            // Decoding the re-encoded form must land in the same place.
+            let again = try JSONDecoder().decode(ClaimGeneratorInfo.self, from: reencoded)
+            guard again == decoded else {
+                return .failure("CGI Unknown Fields", "round-trip is not stable")
+            }
+        } catch {
+            return .failure("CGI Unknown Fields", "Error: \(error)")
+        }
+        return .success("CGI Unknown Fields", "[PASS] unknown fields survive the round-trip")
+    }
+
+    public func testClaimGeneratorInfoOperatingSystemAlias() -> TestResult {
+        // c2pa-rs accepts the schema.org spelling when decoding but always writes
+        // operating_system, so decoding must accept both and encoding must normalize.
+        let aliased = """
+        {"name":"Other/1.0","schema.org.SoftwareApplication.operatingSystem":"macOS 15"}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(ClaimGeneratorInfo.self, from: Data(aliased.utf8))
+            guard decoded.operatingSystem == "macOS 15" else {
+                return .failure(
+                    "CGI OS Alias", "alias did not decode, got \(decoded.operatingSystem ?? "nil")")
+            }
+            guard decoded.additionalFields == nil else {
+                return .failure("CGI OS Alias", "the alias key leaked into additionalFields")
+            }
+
+            let json = String(data: try JSONEncoder().encode(decoded), encoding: .utf8) ?? ""
+            guard json.contains("\"operating_system\"") else {
+                return .failure("CGI OS Alias", "did not re-encode as operating_system: \(json)")
+            }
+            guard !json.contains("schema.org") else {
+                return .failure("CGI OS Alias", "re-encoded using the alias spelling: \(json)")
+            }
+        } catch {
+            return .failure("CGI OS Alias", "Error: \(error)")
+        }
+        return .success("CGI OS Alias", "[PASS] alias decodes and normalizes to operating_system")
+    }
+
+    public func testMetadataPreservesUnknownFields() -> TestResult {
+        // The C2PA metadata object is explicitly open-ended.
+        let source = """
+        {"dataSource":{"type":"signer"},"org.example.custom":"kept","weight":3}
+        """
+        do {
+            let decoded = try JSONDecoder().decode(Metadata.self, from: Data(source.utf8))
+            guard let extras = decoded.additionalFields,
+                Set(extras.keys) == ["org.example.custom", "weight"]
+            else {
+                return .failure(
+                    "Metadata Unknown Fields",
+                    "unexpected extras: \(decoded.additionalFields?.keys.sorted() ?? [])")
+            }
+            guard decoded.dataSource?.type == "signer" else {
+                return .failure("Metadata Unknown Fields", "modeled dataSource did not decode")
+            }
+
+            let json = String(data: try JSONEncoder().encode(decoded), encoding: .utf8) ?? ""
+            for key in ["\"org.example.custom\"", "\"weight\"", "\"dataSource\""] where !json.contains(key) {
+                return .failure("Metadata Unknown Fields", "re-encoded JSON dropped \(key): \(json)")
+            }
+        } catch {
+            return .failure("Metadata Unknown Fields", "Error: \(error)")
+        }
+        return .success("Metadata Unknown Fields", "[PASS] unknown fields survive the round-trip")
+    }
+
     public func testValidateAndLog() -> TestResult {
         let manifest = ManifestDefinition(
             claimGeneratorInfo: [ClaimGeneratorInfo()],
@@ -910,6 +1003,9 @@ public final class ManifestTests: TestImplementation {
             testActionNewFields(),
             testActionWireKeys(),
             testManifestWireKeyDrift(),
+            testClaimGeneratorInfoPreservesUnknownFields(),
+            testClaimGeneratorInfoOperatingSystemAlias(),
+            testMetadataPreservesUnknownFields(),
             testValidateAndLog(),
             testCustomAssertionLabelValidation(),
             testCreatedFactory(),
