@@ -1,16 +1,20 @@
 # Reusable sync loop for the c2pa-rs tracking branches. Invoked by
-# track-c2pa-rs-stable.yml and track-c2pa-rs-rc.yml.
+# track-c2pa-rs-stable.yml, track-c2pa-rs-rc.yml and track-c2pa-rs-main.yml.
 #
 # Each tracking branch is always origin/main plus exactly one pin-bump commit,
 # hard-reset on every sync. Nothing ever originates on a tracking branch, so
 # a fix is always an ordinary PR to main; the next sync picks it up.
+#
+# In main mode there is no released version to pin, so that single commit is an
+# empty marker commit: it records the upstream commit the branch was built
+# against and changes nothing in the tree.
 name: Track c2pa-rs
 
 on:
   workflow_call:
     inputs:
       mode:
-        description: "Tracking mode: stable or rc."
+        description: "Tracking mode: stable, rc, or main."
         required: true
         type: string
       branch:
@@ -23,7 +27,7 @@ on:
         default: contentauth/c2pa-rs
         type: string
       version:
-        description: "Pin this exact version instead of resolving one."
+        description: "Pin this exact version instead of resolving one. Ignored in main mode; use upstream_ref."
         required: false
         default: ""
         type: string
@@ -32,6 +36,11 @@ on:
         required: false
         default: false
         type: boolean
+      upstream_ref:
+        description: "main mode only: upstream branch or commit to build. Defaults to main."
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
@@ -63,6 +72,8 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       proceed: ${{ steps.guard.outputs.proceed }}
       main_sha: ${{ steps.guard.outputs.main_sha }}
+      upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
+      previous_target: ${{ steps.guard.outputs.previous_target }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -75,8 +86,20 @@ jobs:
           MODE: ${{ inputs.mode }}
           SOURCE_REPO: ${{ inputs.source_repo }}
           PINNED: ${{ inputs.version }}
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
         run: |
           set -euo pipefail
+
+          if [ "$MODE" = "main" ]; then
+            # main has no releases; the target is a commit. The short form is
+            # what the marker, branch commit subject and issue body carry; the
+            # full SHA feeds the clone and the compare link.
+            sha="$(gh api "repos/${SOURCE_REPO}/commits/${UPSTREAM_REF}" --jq .sha)"
+            echo "Resolved ${SOURCE_REPO}@${UPSTREAM_REF} to ${sha}"
+            echo "version=main@${sha:0:12}" >> "$GITHUB_OUTPUT"
+            echo "upstream_sha=${sha}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if [ -n "$PINNED" ]; then
             echo "Using explicitly requested version $PINNED"
@@ -112,7 +135,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Preflight Release Assets
-        if: steps.resolve.outputs.version != ''
+        if: inputs.mode != 'main' && steps.resolve.outputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ inputs.source_repo }}
@@ -133,6 +156,15 @@ jobs:
           main_sha="$(git rev-parse origin/main)"
           echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
 
+          # main mode: remember what the branch tracked before this run, for
+          # the compare link in the report. Sync force-pushes the branch before
+          # report runs, so this is the only place the old tip is still visible.
+          previous=""
+          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
+            previous="$(git log -1 --format=%B "origin/${BRANCH}" | sed -n 's/^c2pa-track: [0-9a-f]* \(main@[0-9a-f]*\)$/\1/p' | head -1)"
+          fi
+          echo "previous_target=${previous}" >> "$GITHUB_OUTPUT"
+
           # The sync commit carries this marker in its body, so the branch tip
           # itself records the (main SHA, version) pair it was built from.
           # Without this guard, schedule and push:main both firing produce
@@ -151,7 +183,9 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.proceed == 'true'
     runs-on: macos-15
-    timeout-minutes: 60
+    # Seven cold release builds of c2pa-c-ffi plus the simulator tests do not
+    # fit in 60 minutes.
+    timeout-minutes: ${{ inputs.mode == 'main' && 120 || 60 }}
     outputs:
       result: ${{ steps.outcome.outputs.result }}
     steps:
@@ -166,6 +200,7 @@ jobs:
 
       - name: Build the Tracking Branch
         env:
+          MODE: ${{ inputs.mode }}
           BRANCH: ${{ inputs.branch }}
           VERSION: ${{ needs.resolve.outputs.version }}
           MAIN_SHA: ${{ needs.resolve.outputs.main_sha }}
@@ -185,32 +220,86 @@ jobs:
           # since resolve ran, and the marker must record the true tip built.
           git checkout -B "$BRANCH" "$MAIN_SHA"
 
-          # BSD sed -- this job runs on macOS.
-          sed -i '' "s/^C2PA_VERSION = .*/C2PA_VERSION = ${VERSION}/" Configurations/Base.xcconfig
-          grep '^C2PA_VERSION' Configurations/Base.xcconfig
+          if [ "$MODE" != "main" ]; then
+            # BSD sed -- this job runs on macOS.
+            sed -i '' "s/^C2PA_VERSION = .*/C2PA_VERSION = ${VERSION}/" Configurations/Base.xcconfig
+            grep '^C2PA_VERSION' Configurations/Base.xcconfig
+            git add Configurations/Base.xcconfig
+          fi
 
-          git add Configurations/Base.xcconfig
           # --allow-empty: right after the promotion PR merges, main is
           # already pinned to the resolved version, so sed is a no-op. That
           # is the normal steady state, not an error -- the marker commit
           # must still land so the idempotence guard has something to see.
+          # In main mode there is no pin at all, so the commit is always empty.
           git commit --allow-empty \
             -m "chore: track c2pa-rs ${VERSION}" \
             -m "c2pa-track: ${MAIN_SHA} ${VERSION}"
 
+      - name: Install Rust
+        if: inputs.mode == 'main'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone c2pa-rs
+        if: inputs.mode == 'main'
+        env:
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          # Single-commit fetch of the exact SHA resolve recorded, not
+          # whatever the branch is by now.
+          git init -q "$RUNNER_TEMP/c2pa-rs"
+          git -C "$RUNNER_TEMP/c2pa-rs" fetch -q --depth 1 \
+            "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" "$UPSTREAM_SHA"
+          git -C "$RUNNER_TEMP/c2pa-rs" checkout -q FETCH_HEAD
+
+      - name: Cache Cargo
+        if: inputs.mode == 'main'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/c2pa-rs
+          key: apple-archives
+          # A red run still compiled every dependency; keep that for next time.
+          cache-on-failure: true
+
+      - name: Build c2pa-rs Apple Archives
+        id: archives
+        if: inputs.mode == 'main'
+        # Reported separately from a test failure: a C API that does not
+        # compile for an Apple target is a different signal from one that
+        # compiles and breaks our tests.
+        continue-on-error: true
+        run: .github/scripts/build-c2pa-archives.sh "$RUNNER_TEMP/c2pa-rs" "$RUNNER_TEMP/c2pa-archives"
+
       - name: Run Library Tests
         id: build
+        # In main mode the tests only mean something against archives that
+        # actually built.
+        if: inputs.mode != 'main' || steps.archives.outcome == 'success'
         continue-on-error: true
-        run: make test-library DESTINATION="$SIMULATOR_DESTINATION"
+        env:
+          # Empty outside main mode, which the Makefile treats as unset.
+          C2PA_ARCHIVE_DIR: ${{ inputs.mode == 'main' && format('{0}/c2pa-archives', runner.temp) || '' }}
+        run: make test-library DESTINATION="$SIMULATOR_DESTINATION" C2PA_ARCHIVE_DIR="$C2PA_ARCHIVE_DIR"
 
       - name: Upload Test Results
         # Only on red: this workflow runs unattended several times a day per
         # branch, so the bundle is only of interest when something broke.
-        if: steps.build.outcome != 'success'
+        if: steps.build.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: TestResults-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
           path: TestResults.xcresult
+          if-no-files-found: warn
+
+      - name: Upload Self-Built Archives
+        # Only on red, so the break can be debugged without a 40-minute rebuild.
+        if: inputs.mode == 'main' && (steps.archives.outcome == 'failure' || steps.build.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: c2pa-archives-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/c2pa-archives
           if-no-files-found: warn
 
       # Pushed regardless of test outcome: the branch reflects upstream
@@ -235,7 +324,9 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [ "${{ steps.build.outcome }}" != "success" ]; then
+          if [ "${{ steps.archives.outcome }}" = "failure" ]; then
+            echo "result=build-failure" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.build.outcome }}" != "success" ]; then
             echo "result=failure" >> "$GITHUB_OUTPUT"
           elif [ "${{ steps.push.outcome }}" != "success" ]; then
             echo "result=not-pushed" >> "$GITHUB_OUTPUT"
@@ -335,6 +426,7 @@ jobs:
 
       - name: Read Previous Pinned Version
         id: previous
+        if: inputs.mode != 'main'
         run: |
           set -euo pipefail
           previous="$(grep '^C2PA_VERSION' Configurations/Base.xcconfig | cut -d'=' -f2 | xargs)"
@@ -388,6 +480,8 @@ jobs:
           SOURCE_REPO: ${{ inputs.source_repo }}
           VERSION: ${{ needs.resolve.outputs.version }}
           PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+          PREVIOUS_TARGET: ${{ needs.resolve.outputs.previous_target }}
           MAIN_SHA: ${{ needs.resolve.outputs.main_sha }}
           SYNC_RESULT: ${{ needs.sync.outputs.result }}
           MATRIX_RESULT: ${{ needs.matrix.result }}
@@ -395,18 +489,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_url="${GITHUB_SERVER_URL}/${SOURCE_REPO}/releases/tag/c2pa-${VERSION}"
           run_url="${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
 
           if [ "$MODE" = "stable" ]; then
             urgency="**Urgent.** ${VERSION} is already published upstream and our \`main\` cannot move to it until this is resolved."
-          else
+          elif [ "$MODE" = "rc" ]; then
             urgency="Informational. This is the early-warning system working: a breaking release is baking upstream on the rc train, and there is time to react before it is promoted to stable."
+          else
+            urgency="Informational. This is the earliest warning available: upstream \`main\` at \`${UPSTREAM_SHA}\` does not work with our \`main\`. Nothing is released yet; the change may still be reverted upstream, or it may be the first sign of the next breaking train."
           fi
 
-          if [ "$SYNC_RESULT" = "failure" ]; then
+          if [ "$SYNC_RESULT" = "build-failure" ]; then
+            result="build-failure"
+            state_note="The c2pa-c-ffi C API did not compile or package for at least one Apple target, so \`make test-library\` never ran. The job log shows which target; whatever archives did build are attached to the run below. The tracking branch (\`${BRANCH}\`) was still pushed and records the upstream SHA."
+          elif [ "$SYNC_RESULT" = "failure" ]; then
             result="failure"
             state_note="The tracking branch (\`${BRANCH}\`) holds the failing build/test state and can be checked out directly to debug."
+            if [ "$MODE" = "main" ]; then
+              state_note="${state_note} Rebuilding needs the self-built archives: either download the \`c2pa-archives-*\` artifact from the run below and pass it as \`C2PA_ARCHIVE_DIR\`, or run \`.github/scripts/build-c2pa-archives.sh\` against a c2pa-rs checkout at \`${UPSTREAM_SHA}\`."
+            fi
           elif [ "$SYNC_RESULT" = "not-pushed" ]; then
             result="not-pushed"
             state_note="Tests **passed** against ${VERSION}, but the tracking branch was not updated (push failed or was rejected -- check push permissions and branch protection on \`${BRANCH}\`). The branch does **not** reflect what was tested; do not go looking for an upstream break here."
@@ -423,15 +524,28 @@ jobs:
             echo
             echo "| | |"
             echo "|---|---|"
-            echo "| Target version | \`${VERSION}\` |"
-            echo "| Previous version | \`${PREVIOUS_VERSION}\` |"
+            if [ "$MODE" = "main" ]; then
+              echo "| Upstream SHA | \`${UPSTREAM_SHA}\` |"
+              echo "| Previously tracked | \`${PREVIOUS_TARGET:-none}\` |"
+            else
+              echo "| Target version | \`${VERSION}\` |"
+              echo "| Previous version | \`${PREVIOUS_VERSION}\` |"
+            fi
             echo "| main SHA | \`${MAIN_SHA}\` |"
             echo "| Result | \`${result}\` |"
             echo
             echo "${state_note}"
             echo
             echo "Failed run: ${run_url}"
-            echo "Upstream release notes: ${release_url}"
+            if [ "$MODE" = "main" ]; then
+              if [ -n "$PREVIOUS_TARGET" ]; then
+                echo "Upstream changes since the previous sync: ${GITHUB_SERVER_URL}/${SOURCE_REPO}/compare/${PREVIOUS_TARGET#main@}...${UPSTREAM_SHA}"
+              else
+                echo "No previous run to compare against; this is the first sync of \`${BRANCH}\`."
+              fi
+            else
+              echo "Upstream release notes: ${GITHUB_SERVER_URL}/${SOURCE_REPO}/releases/tag/c2pa-${VERSION}"
+            fi
             echo
             echo "### Self-healing"
             echo
@@ -457,16 +571,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          MODE: ${{ inputs.mode }}
           BRANCH: ${{ inputs.branch }}
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
         run: |
           set -euo pipefail
           run_url="${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
           {
             echo "The \`resolve\` job for \`${BRANCH}\` failed before it could determine a target version, so no build was attempted and the \`report\` job never ran."
             echo
-            echo "**Likely cause:** the asset preflight. Upstream added, renamed, or dropped an Apple target archive on the release, so the release no longer carries every archive this repo expects. Bring the target list in \`.github/scripts/check-c2pa-assets.sh\` back in lockstep with the \`download_and_extract\` calls in the C2PAC framework build phase in \`Library/Library.xcodeproj/project.pbxproj\` -- the two must always change together."
-            echo
-            echo "**Other possibility:** a transient GitHub releases-API error (rate limit, timeout). This clears on its own on the next scheduled run; no action needed if it does not recur."
+            if [ "$MODE" = "main" ]; then
+              echo "**Likely cause:** the commits API could not resolve \`${UPSTREAM_REF}\` on the upstream repository -- a mistyped \`upstream_ref\` on a manual dispatch, or a transient GitHub API error (rate limit, timeout). The latter clears on its own on the next scheduled run."
+            else
+              echo "**Likely cause:** the asset preflight. Upstream added, renamed, or dropped an Apple target archive on the release, so the release no longer carries every archive this repo expects. Bring the target list in \`.github/scripts/c2pa-apple-targets.sh\` back in lockstep with the \`download_and_extract\` calls in the C2PAC framework build phase in \`Library/Library.xcodeproj/project.pbxproj\` -- the two must always change together."
+              echo
+              echo "**Other possibility:** a transient GitHub releases-API error (rate limit, timeout). This clears on its own on the next scheduled run; no action needed if it does not recur."
+            fi
             echo
             echo "Failed run: ${run_url}"
           } > "$RUNNER_TEMP/issue-body.md"

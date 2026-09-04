@@ -7,6 +7,12 @@ C2PA_VERSION = v0.90.0
 // GitHub organization that hosts the C2PA releases
 GITHUB_ORG = contentauth
 
+// Optional. When set to a directory containing the seven
+// c2pa-<version>-<triple>.zip archives, the C2PAC build phase uses them
+// instead of downloading the release above. Normally passed on the command
+// line via `make test-library C2PA_ARCHIVE_DIR=<dir>`; see the Makefile.
+C2PA_ARCHIVE_DIR =
+
 // Server base URL for the C2PA signing server, needs to start
 // with 'https:/$()/' to avoid being treated as a comment
 SIGNING_SERVER_URL = https:/$()/your-signing-server-url:8080

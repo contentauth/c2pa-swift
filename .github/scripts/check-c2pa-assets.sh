@@ -16,18 +16,11 @@ set -euo pipefail
 version="${1:-}"
 [ -n "$version" ] || { echo "usage: $0 vX.Y.Z[-rc.N]" >&2; exit 1; }
 
-# Kept in lockstep with the download_and_extract calls in the C2PAC framework
-# build phase in Library/Library.xcodeproj/project.pbxproj. A target added or
-# renamed upstream must be reflected here.
-TARGETS="
-aarch64-apple-ios
-x86_64-apple-ios
-aarch64-apple-ios-sim
-x86_64-apple-ios-macabi
-aarch64-apple-ios-macabi
-x86_64-apple-darwin
-aarch64-apple-darwin
-"
+# The seven required Apple targets live in c2pa-apple-targets.sh, shared with
+# build-c2pa-archives.sh so the preflight and the self-built path cannot
+# drift from each other or from the pbxproj build phase.
+# shellcheck source=c2pa-apple-targets.sh
+. "$(dirname "$0")/c2pa-apple-targets.sh"
 
 # Read stdin exactly once so it can be validated before jq sees it. A
 # CI-scheduled fetch that failed outright (rate-limited, or a proxy's HTML
@@ -54,7 +47,7 @@ fi
 assets="$(printf '%s' "$raw_input" | jq -r '.assets[].name')"
 
 missing=""
-for target in $TARGETS; do
+for target in $C2PA_APPLE_TARGETS; do
   expected="c2pa-${version}-${target}.zip"
   if ! printf '%s\n' "$assets" | grep -Fxq "$expected"; then
     missing="${missing}  ${expected}
@@ -68,4 +61,5 @@ if [ -n "$missing" ]; then
   exit 4
 fi
 
-echo "All 7 required target archives present for ${version}."
+count="$(printf '%s\n' "$C2PA_APPLE_TARGETS" | grep -c .)"
+echo "All ${count} required target archives present for ${version}."

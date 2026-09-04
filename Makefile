@@ -16,6 +16,16 @@ MACOS_DESTINATION ?= platform=macOS
 # a Mac Development certificate can still build and run the test bundles.
 TEST_CODE_SIGN_FLAGS := CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS=""
 
+# Optional. Build the C2PAC framework from archives in this directory instead
+# of downloading them from a c2pa-rs release. Expects the seven
+# c2pa-<version>-<triple>.zip files exactly as upstream's
+# `make release TARGET=<triple>` produces them; .github/scripts/build-c2pa-archives.sh
+# builds that set from a c2pa-rs checkout. Run `make clean` when switching
+# directories: Xcode may not re-run the framework build phase when only the
+# archive contents changed.
+C2PA_ARCHIVE_DIR ?=
+C2PA_ARCHIVE_FLAGS := $(if $(C2PA_ARCHIVE_DIR),C2PA_ARCHIVE_DIR="$(abspath $(C2PA_ARCHIVE_DIR))",)
+
 # Default target
 all: workspace-build
 
@@ -25,7 +35,6 @@ lint:
 	@swiftlint lint --strict
 	@echo "Linting completed."
 
-
 # Build the C2PA multi-platform library (iOS device + iOS simulator + Mac Catalyst + macOS).
 # Produces Library/Frameworks/C2PAC.xcframework and output/C2PAC.xcframework.zip.
 library:
@@ -33,13 +42,13 @@ library:
 	@SYMROOT=$$(xcodebuild -workspace C2PA.xcworkspace -scheme Library -showBuildSettings 2>/dev/null | grep "^    SYMROOT = " | head -1 | sed 's/.*SYMROOT = //'); \
 	echo "Build root: $$SYMROOT"; \
 	echo "Building for iOS device..."; \
-	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=iOS" build; \
+	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=iOS" $(C2PA_ARCHIVE_FLAGS) build; \
 	echo "Building for iOS simulator..."; \
-	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=iOS Simulator" build; \
+	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=iOS Simulator" $(C2PA_ARCHIVE_FLAGS) build; \
 	echo "Building for Mac Catalyst..."; \
-	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=macOS,variant=Mac Catalyst" build; \
+	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=macOS,variant=Mac Catalyst" $(C2PA_ARCHIVE_FLAGS) build; \
 	echo "Building for macOS..."; \
-	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=macOS" build; \
+	xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination "generic/platform=macOS" $(C2PA_ARCHIVE_FLAGS) build; \
 	echo "Creating XCFramework from all platform builds..."; \
 	DEVICE_DIR="$$SYMROOT/$(CONFIGURATION)-iphoneos"; \
 	SIMULATOR_DIR="$$SYMROOT/$(CONFIGURATION)-iphonesimulator"; \
@@ -111,13 +120,14 @@ test-library: library
 		-destination '$(DESTINATION)' \
 		-resultBundlePath TestResults.xcresult \
 		-enableCodeCoverage YES \
-		$(TEST_CODE_SIGN_FLAGS)
+		$(TEST_CODE_SIGN_FLAGS) \
+		$(C2PA_ARCHIVE_FLAGS)
 	@echo "Library tests completed."
 
 # Run library tests on macOS
 test-library-macos:
 	@echo "Building C2PA library for macOS..."
-	@xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination '$(MACOS_DESTINATION)' $(TEST_CODE_SIGN_FLAGS) build
+	@xcodebuild -workspace C2PA.xcworkspace -scheme Library -configuration $(CONFIGURATION) -destination '$(MACOS_DESTINATION)' $(TEST_CODE_SIGN_FLAGS) $(C2PA_ARCHIVE_FLAGS) build
 	@echo "Running library unit tests on macOS..."
 	@rm -rf TestResults.xcresult
 	@xcodebuild test \
@@ -126,7 +136,8 @@ test-library-macos:
 		-destination '$(MACOS_DESTINATION)' \
 		-resultBundlePath TestResults.xcresult \
 		-enableCodeCoverage YES \
-		$(TEST_CODE_SIGN_FLAGS)
+		$(TEST_CODE_SIGN_FLAGS) \
+		$(C2PA_ARCHIVE_FLAGS)
 	@echo "macOS library tests completed."
 
 # Run all tests including unit and UI tests
@@ -444,6 +455,7 @@ help:
 	@echo "  make workspace-build - Build entire workspace"
 	@echo "  make test-library - Run library unit tests only (iOS)"
 	@echo "  make test-library-macos - Run library unit tests on macOS"
+	@echo "  C2PA_ARCHIVE_DIR=<dir> - With library/test-library/test-library-macos targets: build C2PAC from local c2pa archives instead of a release"
 	@echo "  make tests        - Run all tests"
 	@echo "  make release-tests - Run tests for release validation"
 	@echo "  make test-summary - Generate test summary from xcresult"

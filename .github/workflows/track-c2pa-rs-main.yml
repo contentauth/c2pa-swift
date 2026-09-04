@@ -1,0 +1,52 @@
+# Tracks the tip of upstream c2pa-rs main. Unlike the stable and rc trackers
+# there are no prebuilt binaries to download: this run clones c2pa-rs and
+# builds the c2pa-c-ffi crate for all seven Apple targets itself, using
+# upstream's own packaging, then runs our library tests against the result.
+#
+# Daily rather than on every push to our main: each run is roughly 45 minutes
+# of macOS time, and the stable tracker already answers whether our main still
+# works against a known release. The question here is whether upstream moved
+# under us, and once a day is early enough for that.
+name: Track c2pa-rs main
+
+on:
+  schedule:
+    # 03:30 UTC, offset from the six-hourly stable and rc runs so three macOS
+    # jobs are not queued at once.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream branch or commit to build (default: main)."
+        required: false
+        default: main
+        type: string
+      dry_run:
+        description: "Resolve and build, but do not push or file issues."
+        required: false
+        default: false
+        type: boolean
+
+# Must be declared here: reusable-workflow permissions can only be reduced
+# through the call chain, never elevated, so omitting this would leave the
+# force-push in track-c2pa-rs.yml unauthorised on a read-only default token.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  track:
+    uses: ./.github/workflows/track-c2pa-rs.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      mode: main
+      branch: track/c2pa-rs-main
+      upstream_ref: ${{ inputs.upstream_ref || 'main' }}
+      # workflow_dispatch booleans arrive as strings; comparing both ways is
+      # correct for either, and yields false on schedule where inputs are
+      # empty.
+      dry_run: ${{ inputs.dry_run == true || inputs.dry_run == 'true' }}

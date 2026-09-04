@@ -78,6 +78,26 @@ make test-library-macos
 make coverage
 ```
 
+### Building against a local c2pa-rs checkout
+
+By default the C2PAC framework build phase downloads prebuilt archives for the
+c2pa-rs release pinned by `C2PA_VERSION` in `Configurations/Base.xcconfig`. To
+build against an unreleased c2pa-rs instead, build the seven Apple archives
+from a checkout and point the build at them:
+
+```bash
+# Uses upstream's own `make release TARGET=<triple>`; needs rustup and Xcode
+.github/scripts/build-c2pa-archives.sh ~/src/c2pa-rs /tmp/c2pa-archives
+
+make clean
+make test-library C2PA_ARCHIVE_DIR=/tmp/c2pa-archives
+```
+
+`C2PA_ARCHIVE_DIR` works with `make library`, `make test-library` and
+`make test-library-macos`. Run `make clean` when switching between directories
+or back to release mode; Xcode does not notice when only the archive contents
+change. This is also how the `track/c2pa-rs-main` branch is built in CI.
+
 ### Running applications
 
 ```bash
