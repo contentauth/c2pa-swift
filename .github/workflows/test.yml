@@ -2,9 +2,21 @@ name: Tests
 
 on:
   push:
+    # Tracking branches run their own make test-library via
+    # track-c2pa-rs.yml and are force-pushed frequently; the full matrix
+    # runs for them only as the pre-promotion gate.
+    branches-ignore:
+      - "track/**"
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to test. Defaults to the triggering ref."
+        required: false
+        default: ""
+        type: string
 
 env:
   SCHEME: Library
@@ -15,6 +27,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -53,6 +67,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Xcode ${{ matrix.xcode }}
         uses: maxim-lobanov/setup-xcode@v1

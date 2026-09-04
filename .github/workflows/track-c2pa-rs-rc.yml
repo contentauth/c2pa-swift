@@ -1,0 +1,48 @@
+# Tracks the in-flight breaking train. c2pa-rs cuts an 0.N.0-rc branch on the
+# second Monday of odd months, bakes it for at least three business days, and
+# publishes -rc.N prerelease binaries specifically so downstream consumers of
+# prebuilt artifacts can validate during the bake. Trains are skipped when
+# nothing breaking is queued, so this workflow no-ops most of the time.
+name: Track c2pa-rs rc
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Pin this exact version instead of resolving one."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Resolve and build, but do not push or file issues."
+        required: false
+        default: false
+        type: boolean
+
+# Must be declared here: reusable-workflow permissions can only be reduced
+# through the call chain, never elevated, so omitting this would leave the
+# force-push in track-c2pa-rs.yml unauthorised on a read-only default token.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  track:
+    uses: ./.github/workflows/track-c2pa-rs.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      mode: rc
+      branch: track/c2pa-rs-rc
+      version: ${{ inputs.version || '' }}
+      # workflow_dispatch booleans arrive as strings; comparing both ways is
+      # correct for either, and yields false on schedule/push where inputs
+      # are empty.
+      dry_run: ${{ inputs.dry_run == true || inputs.dry_run == 'true' }}

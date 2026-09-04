@@ -1,0 +1,594 @@
+# Reusable sync loop for the c2pa-rs tracking branches. Invoked by
+# track-c2pa-rs-stable.yml, track-c2pa-rs-rc.yml and track-c2pa-rs-main.yml.
+#
+# Each tracking branch is always origin/main plus exactly one pin-bump commit,
+# hard-reset on every sync. Nothing ever originates on a tracking branch, so
+# a fix is always an ordinary PR to main; the next sync picks it up.
+#
+# In main mode there is no released version to pin, so that single commit is an
+# empty marker commit: it records the upstream commit the branch was built
+# against and changes nothing in the tree.
+name: Track c2pa-rs
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "Tracking mode: stable, rc, or main."
+        required: true
+        type: string
+      branch:
+        description: "Tracking branch to force-push."
+        required: true
+        type: string
+      source_repo:
+        description: "Upstream repository to read releases from."
+        required: false
+        default: contentauth/c2pa-rs
+        type: string
+      version:
+        description: "Pin this exact version instead of resolving one. Ignored in main mode; use upstream_ref."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Resolve and build, but do not push or file issues."
+        required: false
+        default: false
+        type: boolean
+      upstream_ref:
+        description: "main mode only: upstream branch or commit to build. Defaults to main."
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: track-c2pa-rs-${{ inputs.branch }}
+  # Deliberately NOT cancel-in-progress. Sync force-pushes the branch and
+  # writes the idempotence marker before the promotion PR is updated, so a
+  # cancellation between those points leaves the branch ahead of a PR that
+  # still names the previous version -- and the marker then makes every later
+  # run skip, so nothing corrects it. Queuing is cheap: a superseded run
+  # no-ops in about 20 seconds via the guard.
+  cancel-in-progress: false
+
+env:
+  # Must match a simulator present on the pinned Xcode. The Makefile default
+  # (iPhone 17 Pro) does not exist on Xcode 16.4, and every other workflow
+  # here overrides it the same way.
+  SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
+
+jobs:
+  resolve:
+    name: Resolve Target Version
+    # Reading the releases API needs no macOS runner.
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      proceed: ${{ steps.guard.outputs.proceed }}
+      main_sha: ${{ steps.guard.outputs.main_sha }}
+      upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
+      previous_target: ${{ steps.guard.outputs.previous_target }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Target Version
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          PINNED: ${{ inputs.version }}
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
+        run: |
+          set -euo pipefail
+
+          if [ "$MODE" = "main" ]; then
+            # main has no releases; the target is a commit. The short form is
+            # what the marker, branch commit subject and issue body carry; the
+            # full SHA feeds the clone and the compare link.
+            sha="$(gh api "repos/${SOURCE_REPO}/commits/${UPSTREAM_REF}" --jq .sha)"
+            echo "Resolved ${SOURCE_REPO}@${UPSTREAM_REF} to ${sha}"
+            echo "version=main@${sha:0:12}" >> "$GITHUB_OUTPUT"
+            echo "upstream_sha=${sha}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$PINNED" ]; then
+            echo "Using explicitly requested version $PINNED"
+            echo "version=$PINNED" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Plain --paginate already merges REST array pages into one flat
+          # array, so no jq/slurp step is needed.
+          gh api "repos/${SOURCE_REPO}/releases?per_page=100" --paginate \
+            > "$RUNNER_TEMP/releases.json"
+
+          stable_arg=""
+          if [ "$MODE" = "rc" ]; then
+            stable="$(.github/scripts/resolve-c2pa-version.sh --mode stable < "$RUNNER_TEMP/releases.json")"
+            echo "Current stable release: $stable"
+            stable_arg="--stable $stable"
+          fi
+
+          set +e
+          version="$(.github/scripts/resolve-c2pa-version.sh --mode "$MODE" $stable_arg < "$RUNNER_TEMP/releases.json")"
+          code=$?
+          set -e
+
+          if [ "$code" -eq 3 ]; then
+            echo "No train in flight; nothing to track."
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$code" -eq 0 ] || exit "$code"
+
+          echo "Resolved target version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight Release Assets
+        if: inputs.mode != 'main' && steps.resolve.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${SOURCE_REPO}/releases/tags/c2pa-${VERSION}" \
+            | .github/scripts/check-c2pa-assets.sh "$VERSION"
+
+      - name: Idempotence Guard
+        id: guard
+        if: steps.resolve.outputs.version != ''
+        env:
+          BRANCH: ${{ inputs.branch }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          main_sha="$(git rev-parse origin/main)"
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+          # main mode: remember what the branch tracked before this run, for
+          # the compare link in the report. Sync force-pushes the branch before
+          # report runs, so this is the only place the old tip is still visible.
+          previous=""
+          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
+            previous="$(git log -1 --format=%B "origin/${BRANCH}" | sed -n 's/^c2pa-track: [0-9a-f]* \(main@[0-9a-f]*\)$/\1/p' | head -1)"
+          fi
+          echo "previous_target=${previous}" >> "$GITHUB_OUTPUT"
+
+          # The sync commit carries this marker in its body, so the branch tip
+          # itself records the (main SHA, version) pair it was built from.
+          # Without this guard, schedule and push:main both firing produce
+          # redundant force-pushes and duplicate CI runs.
+          marker="c2pa-track: ${main_sha} ${VERSION}"
+          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1 \
+             && git log -1 --format=%B "origin/${BRANCH}" | grep -Fxq "$marker"; then
+            echo "Branch already at (${main_sha}, ${VERSION}); nothing to do."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  sync:
+    name: Build against ${{ needs.resolve.outputs.version }}
+    needs: resolve
+    if: needs.resolve.outputs.proceed == 'true'
+    runs-on: macos-15
+    # Seven cold release builds of c2pa-c-ffi plus the simulator tests do not
+    # fit in 60 minutes.
+    timeout-minutes: ${{ inputs.mode == 'main' && 120 || 60 }}
+    outputs:
+      result: ${{ steps.outcome.outputs.result }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Build the Tracking Branch
+        env:
+          MODE: ${{ inputs.mode }}
+          BRANCH: ${{ inputs.branch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MAIN_SHA: ${{ needs.resolve.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+
+          case "$BRANCH" in
+            track/*) ;;
+            *) echo "refusing to operate on '$BRANCH': not a track/* branch" >&2; exit 1 ;;
+          esac
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Hard-reset from the exact main SHA the resolve job recorded, not
+          # whatever origin/main happens to be now -- main may have advanced
+          # since resolve ran, and the marker must record the true tip built.
+          git checkout -B "$BRANCH" "$MAIN_SHA"
+
+          if [ "$MODE" != "main" ]; then
+            # BSD sed -- this job runs on macOS.
+            sed -i '' "s/^C2PA_VERSION = .*/C2PA_VERSION = ${VERSION}/" Configurations/Base.xcconfig
+            grep '^C2PA_VERSION' Configurations/Base.xcconfig
+            git add Configurations/Base.xcconfig
+          fi
+
+          # --allow-empty: right after the promotion PR merges, main is
+          # already pinned to the resolved version, so sed is a no-op. That
+          # is the normal steady state, not an error -- the marker commit
+          # must still land so the idempotence guard has something to see.
+          # In main mode there is no pin at all, so the commit is always empty.
+          git commit --allow-empty \
+            -m "chore: track c2pa-rs ${VERSION}" \
+            -m "c2pa-track: ${MAIN_SHA} ${VERSION}"
+
+      - name: Install Rust
+        if: inputs.mode == 'main'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone c2pa-rs
+        if: inputs.mode == 'main'
+        env:
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          # Single-commit fetch of the exact SHA resolve recorded, not
+          # whatever the branch is by now.
+          git init -q "$RUNNER_TEMP/c2pa-rs"
+          git -C "$RUNNER_TEMP/c2pa-rs" fetch -q --depth 1 \
+            "${GITHUB_SERVER_URL}/${SOURCE_REPO}.git" "$UPSTREAM_SHA"
+          git -C "$RUNNER_TEMP/c2pa-rs" checkout -q FETCH_HEAD
+
+      - name: Cache Cargo
+        if: inputs.mode == 'main'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/c2pa-rs
+          key: apple-archives
+          # A red run still compiled every dependency; keep that for next time.
+          cache-on-failure: true
+
+      - name: Build c2pa-rs Apple Archives
+        id: archives
+        if: inputs.mode == 'main'
+        # Reported separately from a test failure: a C API that does not
+        # compile for an Apple target is a different signal from one that
+        # compiles and breaks our tests.
+        continue-on-error: true
+        run: .github/scripts/build-c2pa-archives.sh "$RUNNER_TEMP/c2pa-rs" "$RUNNER_TEMP/c2pa-archives"
+
+      - name: Run Library Tests
+        id: build
+        # In main mode the tests only mean something against archives that
+        # actually built.
+        if: inputs.mode != 'main' || steps.archives.outcome == 'success'
+        continue-on-error: true
+        env:
+          # Empty outside main mode, which the Makefile treats as unset.
+          C2PA_ARCHIVE_DIR: ${{ inputs.mode == 'main' && format('{0}/c2pa-archives', runner.temp) || '' }}
+        run: make test-library DESTINATION="$SIMULATOR_DESTINATION" C2PA_ARCHIVE_DIR="$C2PA_ARCHIVE_DIR"
+
+      - name: Upload Test Results
+        # Only on red: this workflow runs unattended several times a day per
+        # branch, so the bundle is only of interest when something broke.
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
+          path: TestResults.xcresult
+          if-no-files-found: warn
+
+      - name: Upload Self-Built Archives
+        # Only on red, so the break can be debugged without a 40-minute rebuild.
+        if: inputs.mode == 'main' && (steps.archives.outcome == 'failure' || steps.build.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: c2pa-archives-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/c2pa-archives
+          if-no-files-found: warn
+
+      # Pushed regardless of test outcome: the branch reflects upstream
+      # reality, including when it is broken. That is the signal. Inverted
+      # to != true (rather than == false) so a dry_run value GHA can't cast
+      # cleanly to boolean fails toward pushing, not toward a silent no-op.
+      - name: Force-Push the Tracking Branch
+        id: push
+        if: ${{ inputs.dry_run != true }}
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          case "$BRANCH" in
+            track/*) ;;
+            *) echo "refusing to operate on '$BRANCH': not a track/* branch" >&2; exit 1 ;;
+          esac
+          git push --force-with-lease origin "$BRANCH"
+
+      - name: Record Outcome
+        id: outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.archives.outcome }}" = "failure" ]; then
+            echo "result=build-failure" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.build.outcome }}" != "success" ]; then
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.push.outcome }}" != "success" ]; then
+            echo "result=not-pushed" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The full simulator matrix runs once, only for the stable tracker, only when
+  # test-library already passed AND the branch was actually pushed, and only
+  # immediately before promotion.
+  #
+  # This must be a job here rather than a push-triggered run: pushes made with
+  # GITHUB_TOKEN do not trigger other workflows, and track/** is excluded from
+  # test.yml's push trigger anyway.
+  matrix:
+    name: Full Matrix
+    needs: [resolve, sync]
+    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && inputs.dry_run != true }}
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ inputs.branch }}
+
+  promote:
+    name: Open Promotion PR
+    needs: [resolve, sync, matrix]
+    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && needs.matrix.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the tracking branch itself, not the default ref, so the PR
+      # can be titled from the pin the branch actually carries rather than
+      # from what this run resolved. Those are normally the same; asserting
+      # it below is what stops a PR ever naming a version the branch does
+      # not contain.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Open or Update the Promotion PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # The PR title is the thing a human acts on, so it must describe the
+          # branch, not this run's intent. If they disagree the branch raced
+          # with another run -- fail rather than publish a misleading title.
+          on_branch="$(grep '^C2PA_VERSION' Configurations/Base.xcconfig | cut -d'=' -f2 | xargs)"
+          if [ "$on_branch" != "$VERSION" ]; then
+            echo "refusing to open a PR: ${BRANCH} is pinned to ${on_branch}, but this run resolved ${VERSION}" >&2
+            exit 1
+          fi
+
+          title="Update core C2PA SDK to ${VERSION}"
+
+          {
+            echo "Bumps \`C2PA_VERSION\` to \`${VERSION}\`."
+            echo
+            echo "Opened by the \`${BRANCH}\` tracker after \`make test-library\` **and** the full"
+            echo "simulator matrix both passed against this version."
+            echo
+            echo "Left as a PR rather than auto-merged: a bump that compiles and tests clean can"
+            echo "still change signing behaviour."
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          existing="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+            --json number -q '.[0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "Updated PR #${existing}."
+          else
+            gh pr create --repo "$REPO" \
+              --base main --head "$BRANCH" \
+              --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi
+
+  report:
+    name: Report Tracking Status
+    needs: [resolve, sync, matrix, promote]
+    # proceed == 'true' means sync actually ran (it shares that same gate),
+    # so needs.sync.outputs.result is one of success/failure/not-pushed here,
+    # never ''. dry_run never files or touches issues.
+    if: ${{ always() && needs.resolve.outputs.proceed == 'true' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_TITLE: "C2PA tracking branch ${{ inputs.branch }} is failing"
+    steps:
+      # Pinned to the exact main SHA the resolve job recorded (not whatever
+      # origin/main is by the time this job runs) so the "previous version"
+      # below always matches the main_sha reported alongside it.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.main_sha }}
+
+      - name: Read Previous Pinned Version
+        id: previous
+        if: inputs.mode != 'main'
+        run: |
+          set -euo pipefail
+          previous="$(grep '^C2PA_VERSION' Configurations/Base.xcconfig | cut -d'=' -f2 | xargs)"
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Close Resolved Tracking Issue
+        # "Everything passed" spans several jobs: sync succeeded (tests green,
+        # branch pushed), and the matrix and promote -- when they ran -- did
+        # too. For mode: rc the matrix never runs at all
+        # (needs.matrix.result == 'skipped'), and that still counts as
+        # resolved; only an actual failure or cancellation blocks closing.
+        if: |
+          needs.sync.outputs.result == 'success' &&
+          (needs.matrix.result == 'success' || needs.matrix.result == 'skipped') &&
+          (needs.promote.result == 'success' || needs.promote.result == 'skipped')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MAIN_SHA: ${{ needs.resolve.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Resolved: the tracking branch now builds and tests pass against **${VERSION}**, from main @ \`${MAIN_SHA}\`."
+            echo
+            echo "Closing this issue."
+          } > "$RUNNER_TEMP/comment.md"
+          .github/scripts/tracking-issue.sh close "$ISSUE_TITLE" "$RUNNER_TEMP/comment.md"
+
+      - name: Open or Update Tracking Issue
+        # Anything that is not an outright success or a legitimate skip gets
+        # reported. Gating on 'failure' alone would let a cancelled matrix or
+        # promote pass silently -- and because sync has already force-pushed
+        # the marker by then, the idempotence guard would skip every later
+        # run, leaving the branch ahead of its PR with nothing filed.
+        #
+        # Three failure shapes land here: sync's own test-library failure, a
+        # passing sync that did not get pushed, and (stable only) a green
+        # sync whose full matrix then failed -- a narrower, platform- or
+        # simulator-specific signal that make test-library alone missed, and
+        # one that must not be silent just because sync itself was green.
+        if: |
+          needs.sync.outputs.result != 'success' ||
+          !(needs.matrix.result == 'success' || needs.matrix.result == 'skipped') ||
+          !(needs.promote.result == 'success' || needs.promote.result == 'skipped')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MODE: ${{ inputs.mode }}
+          BRANCH: ${{ inputs.branch }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.version }}
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+          PREVIOUS_TARGET: ${{ needs.resolve.outputs.previous_target }}
+          MAIN_SHA: ${{ needs.resolve.outputs.main_sha }}
+          SYNC_RESULT: ${{ needs.sync.outputs.result }}
+          MATRIX_RESULT: ${{ needs.matrix.result }}
+          PROMOTE_RESULT: ${{ needs.promote.result }}
+        run: |
+          set -euo pipefail
+
+          run_url="${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
+
+          if [ "$MODE" = "stable" ]; then
+            urgency="**Urgent.** ${VERSION} is already published upstream and our \`main\` cannot move to it until this is resolved."
+          elif [ "$MODE" = "rc" ]; then
+            urgency="Informational. This is the early-warning system working: a breaking release is baking upstream on the rc train, and there is time to react before it is promoted to stable."
+          else
+            urgency="Informational. This is the earliest warning available: upstream \`main\` at \`${UPSTREAM_SHA}\` does not work with our \`main\`. Nothing is released yet; the change may still be reverted upstream, or it may be the first sign of the next breaking train."
+          fi
+
+          if [ "$SYNC_RESULT" = "build-failure" ]; then
+            result="build-failure"
+            state_note="The c2pa-c-ffi C API did not compile or package for at least one Apple target, so \`make test-library\` never ran. The job log shows which target; whatever archives did build are attached to the run below. The tracking branch (\`${BRANCH}\`) was still pushed and records the upstream SHA."
+          elif [ "$SYNC_RESULT" = "failure" ]; then
+            result="failure"
+            state_note="The tracking branch (\`${BRANCH}\`) holds the failing build/test state and can be checked out directly to debug."
+            if [ "$MODE" = "main" ]; then
+              state_note="${state_note} Rebuilding needs the self-built archives: either download the \`c2pa-archives-*\` artifact from the run below and pass it as \`C2PA_ARCHIVE_DIR\`, or run \`.github/scripts/build-c2pa-archives.sh\` against a c2pa-rs checkout at \`${UPSTREAM_SHA}\`."
+            fi
+          elif [ "$SYNC_RESULT" = "not-pushed" ]; then
+            result="not-pushed"
+            state_note="Tests **passed** against ${VERSION}, but the tracking branch was not updated (push failed or was rejected -- check push permissions and branch protection on \`${BRANCH}\`). The branch does **not** reflect what was tested; do not go looking for an upstream break here."
+          elif [ "$MATRIX_RESULT" != "success" ] && [ "$MATRIX_RESULT" != "skipped" ]; then
+            result="matrix-${MATRIX_RESULT}"
+            state_note="\`make test-library\` passed and the tracking branch (\`${BRANCH}\`) was pushed and reflects ${VERSION}, but the full simulator matrix failed against it. This narrows the problem to platform- or simulator-specific behaviour -- \`make test-library\` alone did not catch it. No promotion PR was opened; check the matrix job in the run below."
+          else
+            result="promote-${PROMOTE_RESULT}"
+            state_note="Everything passed -- \`make test-library\`, the full simulator matrix, and the push -- but opening or updating the promotion PR failed. The tracking branch (\`${BRANCH}\`) is correct and reflects ${VERSION}; only the PR is missing or stale, so any open PR from this branch may still name an older version and must not be merged on the strength of its title. This is a permissions or \`gh\` problem, not an upstream break."
+          fi
+
+          {
+            echo "${urgency}"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            if [ "$MODE" = "main" ]; then
+              echo "| Upstream SHA | \`${UPSTREAM_SHA}\` |"
+              echo "| Previously tracked | \`${PREVIOUS_TARGET:-none}\` |"
+            else
+              echo "| Target version | \`${VERSION}\` |"
+              echo "| Previous version | \`${PREVIOUS_VERSION}\` |"
+            fi
+            echo "| main SHA | \`${MAIN_SHA}\` |"
+            echo "| Result | \`${result}\` |"
+            echo
+            echo "${state_note}"
+            echo
+            echo "Failed run: ${run_url}"
+            if [ "$MODE" = "main" ]; then
+              if [ -n "$PREVIOUS_TARGET" ]; then
+                echo "Upstream changes since the previous sync: ${GITHUB_SERVER_URL}/${SOURCE_REPO}/compare/${PREVIOUS_TARGET#main@}...${UPSTREAM_SHA}"
+              else
+                echo "No previous run to compare against; this is the first sync of \`${BRANCH}\`."
+              fi
+            else
+              echo "Upstream release notes: ${GITHUB_SERVER_URL}/${SOURCE_REPO}/releases/tag/c2pa-${VERSION}"
+            fi
+            echo
+            echo "### Self-healing"
+            echo
+            echo "This branch never carries its own fix. Land an ordinary PR against \`main\`; the tracker hard-resets \`${BRANCH}\` from \`main\` on every sync, so the next run picks up the fix and closes this issue automatically."
+          } > "$RUNNER_TEMP/issue-body.md"
+
+          .github/scripts/tracking-issue.sh file "$ISSUE_TITLE" "$RUNNER_TEMP/issue-body.md"
+
+  report-resolve-failure:
+    name: Report Resolution Failure
+    needs: resolve
+    # A distinct gate from `report` above: this fires only when the resolve
+    # job itself died (e.g. the asset preflight), in which case proceed was
+    # never set and `report` does not run. The two are mutually exclusive.
+    if: ${{ always() && needs.resolve.result == 'failure' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_TITLE: "C2PA tracking branch ${{ inputs.branch }} could not resolve a version"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Open or Update Tracking Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MODE: ${{ inputs.mode }}
+          BRANCH: ${{ inputs.branch }}
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The \`resolve\` job for \`${BRANCH}\` failed before it could determine a target version, so no build was attempted and the \`report\` job never ran."
+            echo
+            if [ "$MODE" = "main" ]; then
+              echo "**Likely cause:** the commits API could not resolve \`${UPSTREAM_REF}\` on the upstream repository -- a mistyped \`upstream_ref\` on a manual dispatch, or a transient GitHub API error (rate limit, timeout). The latter clears on its own on the next scheduled run."
+            else
+              echo "**Likely cause:** the asset preflight. Upstream added, renamed, or dropped an Apple target archive on the release, so the release no longer carries every archive this repo expects. Bring the target list in \`.github/scripts/c2pa-apple-targets.sh\` back in lockstep with the \`download_and_extract\` calls in the C2PAC framework build phase in \`Library/Library.xcodeproj/project.pbxproj\` -- the two must always change together."
+              echo
+              echo "**Other possibility:** a transient GitHub releases-API error (rate limit, timeout). This clears on its own on the next scheduled run; no action needed if it does not recur."
+            fi
+            echo
+            echo "Failed run: ${run_url}"
+          } > "$RUNNER_TEMP/issue-body.md"
+
+          .github/scripts/tracking-issue.sh file "$ISSUE_TITLE" "$RUNNER_TEMP/issue-body.md"
