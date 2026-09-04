@@ -1017,6 +1017,61 @@ final class ContextTests: XCTestCase {
         let result = tests.testSettingsFlowRoundtrip()
         XCTAssertTrue(result.passed, result.message)
     }
+
+    func testProgressCallback() throws {
+        let result = tests.testProgressCallback()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testProgressCallbackCancelsOperation() throws {
+        let result = tests.testProgressCallbackCancelsOperation()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolver() throws {
+        let result = tests.testHTTPResolver()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionHTTPResolver() throws {
+        let result = tests.testURLSessionHTTPResolver()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverRemoteManifestFetch() throws {
+        let result = tests.testHTTPResolverRemoteManifestFetch()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverErrorFailsRead() throws {
+        let result = tests.testHTTPResolverErrorFailsRead()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverRejectsOutOfRangeStatus() throws {
+        let result = tests.testHTTPResolverRejectsOutOfRangeStatus()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionResolverRejectsMainQueueSession() throws {
+        let result = tests.testURLSessionResolverRejectsMainQueueSession()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testURLSessionResolverFetchesRemoteManifest() throws {
+        let result = tests.testURLSessionResolverFetchesRemoteManifest()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testHTTPResolverEmptyResponseBody() throws {
+        let result = tests.testHTTPResolverEmptyResponseBody()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextWithSettingsAndCallbacks() throws {
+        let result = tests.testContextWithSettingsAndCallbacks()
+        XCTAssertTrue(result.passed, result.message)
+    }
 }
 
 // MARK: - Settings Definition Tests
