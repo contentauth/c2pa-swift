@@ -2,7 +2,7 @@
 // This file contains shared settings used across all targets and build scripts
 
 // The version of the C2PA Rust library to download from GitHub releases
-C2PA_VERSION = v0.90.0
+C2PA_VERSION = v0.90.20
 
 // GitHub organization that hosts the C2PA releases
 GITHUB_ORG = contentauth
