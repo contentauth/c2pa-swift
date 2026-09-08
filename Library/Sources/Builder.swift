@@ -41,6 +41,9 @@ import Foundation
 /// ### Introspection
 /// - ``supportedMimeTypes``
 ///
+/// ### Created Assertion Labels
+/// - ``defaultCreatedAssertionLabels``
+///
 /// ### Adding Content
 /// - ``addResource(uri:stream:)``
 /// - ``addIngredient(json:format:from:)``
@@ -302,6 +305,24 @@ public final class Builder {
             Int64(c2pa_builder_set_base_path(ptr, url.path))
         )
     }
+
+    /// The assertion labels that are treated as "created" by default.
+    ///
+    /// These mirror the C2PA defaults. Use them as a base when customizing which
+    /// assertions are created via ``C2PASettings``, for example
+    /// `Builder.defaultCreatedAssertionLabels + ["com.example.custom"]`, or pass only
+    /// the extra labels to ``C2PASettings/init(additionalCreatedAssertionLabels:)``.
+    ///
+    /// - SeeAlso: ``C2PASettings/init(createdAssertionLabels:)``,
+    ///   ``C2PASettings/init(additionalCreatedAssertionLabels:)``
+    public static let defaultCreatedAssertionLabels: [String] = [
+        "c2pa.actions",
+        "c2pa.actions.v2",
+        "c2pa.thumbnail.claim",
+        "c2pa.thumbnail.ingredient",
+        "c2pa.ingredient",
+        "c2pa.ingredient.v3"
+    ]
 
     /// The MIME types supported by the builder for signing.
     ///

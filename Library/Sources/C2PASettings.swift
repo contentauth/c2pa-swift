@@ -85,6 +85,37 @@ public final class C2PASettings {
         self.ptr = try Self.makeHandle(from: json, format: "json")
     }
 
+    /// Creates settings whose `builder.created_assertion_labels` is exactly `labels`.
+    ///
+    /// Labels in the list are classified as created assertions; all others are gathered.
+    ///
+    /// - Parameter labels: The full set of created-assertion labels.
+    /// - Throws: ``C2PAError`` if the settings cannot be applied.
+    ///
+    /// - SeeAlso: ``Builder/defaultCreatedAssertionLabels``,
+    ///   ``init(additionalCreatedAssertionLabels:)``
+    public convenience init(createdAssertionLabels labels: [String]) throws {
+        try self.init(
+            definition: C2PASettingsDefinition(
+                version: 1,
+                builder: BuilderSettingsDefinition(createdAssertionLabels: labels)))
+    }
+
+    /// Creates settings that mark ``Builder/defaultCreatedAssertionLabels`` plus
+    /// `additionalLabels` as created, the common "add my own created assertions" case.
+    ///
+    /// Labels already in the defaults are not repeated; the defaults come first.
+    ///
+    /// - Parameter additionalLabels: Extra created-assertion labels to add to the defaults.
+    /// - Throws: ``C2PAError`` if the settings cannot be applied.
+    ///
+    /// - SeeAlso: ``Builder/defaultCreatedAssertionLabels``, ``init(createdAssertionLabels:)``
+    public convenience init(additionalCreatedAssertionLabels additionalLabels: [String]) throws {
+        let defaults = Builder.defaultCreatedAssertionLabels
+        let extras = additionalLabels.filter { !defaults.contains($0) }
+        try self.init(createdAssertionLabels: defaults + extras)
+    }
+
     // No type-specific c2pa_settings_free exists; c2pa_free is the documented
     // general-purpose free and returns an int we intentionally discard.
     deinit { _ = c2pa_free(ptr) }

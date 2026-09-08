@@ -49,16 +49,6 @@ public enum ManifestValidator {
         "c2pa.actions": "Use c2pa.actions.v2 for new manifests"
     ]
 
-    /// Default labels for created assertions.
-    public static let defaultCreatedAssertionLabels: [String] = [
-        "c2pa.actions",
-        "c2pa.actions.v2",
-        "c2pa.thumbnail.claim",
-        "c2pa.thumbnail.ingredient",
-        "c2pa.ingredient",
-        "c2pa.ingredient.v3"
-    ]
-
     // MARK: - Validation
 
     /// Validates a manifest definition for C2PA spec compliance.

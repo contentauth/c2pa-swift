@@ -1157,6 +1157,15 @@ final class SettingsDefinitionTests: XCTestCase {
     func testTimestampParentScope() throws {
         XCTAssertTrue(tests.testTimestampParentScope().passed)
     }
+    func testBuilderDefaultCreatedAssertionLabels() throws {
+        XCTAssertTrue(tests.testBuilderDefaultCreatedAssertionLabels().passed)
+    }
+    func testC2PASettingsCreatedAssertionLabels() throws {
+        XCTAssertTrue(tests.testC2PASettingsCreatedAssertionLabels().passed)
+    }
+    func testC2PASettingsAdditionalCreatedAssertionLabels() throws {
+        XCTAssertTrue(tests.testC2PASettingsAdditionalCreatedAssertionLabels().passed)
+    }
 }
 
 

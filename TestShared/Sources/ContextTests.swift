@@ -572,10 +572,10 @@ public final class ContextTests: TestImplementation {
     private static let customCreatedLabel = "com.example.custom.created"
 
     /// Settings JSON marking the default created-assertion labels PLUS the custom label
-    /// as created. Uses ``ManifestValidator/defaultCreatedAssertionLabels`` so the test
+    /// as created. Uses ``Builder/defaultCreatedAssertionLabels`` so the test
     /// (like a real consumer) doesn't hard-code the c2pa-rs defaults.
     private static func createdLabelsSettingsJSON() -> String {
-        let labels = (ManifestValidator.defaultCreatedAssertionLabels + [customCreatedLabel])
+        let labels = (Builder.defaultCreatedAssertionLabels + [customCreatedLabel])
             .map { "\"\($0)\"" }
             .joined(separator: ",")
         return "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\(labels)]}}"

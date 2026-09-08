@@ -660,6 +660,41 @@ public final class SettingsDefinitionTests: TestImplementation {
         }
     }
 
+    public func testBuilderDefaultCreatedAssertionLabels() -> TestResult {
+        let labels = Builder.defaultCreatedAssertionLabels
+        guard !labels.isEmpty else {
+            return .failure("Builder Default Created Labels", "Default label list is empty")
+        }
+        guard labels.contains("c2pa.actions"), labels.contains("c2pa.ingredient") else {
+            return .failure("Builder Default Created Labels", "Missing expected default labels: \(labels)")
+        }
+        return .success("Builder Default Created Labels", "[PASS] \(labels.count) default created-assertion labels")
+    }
+
+    public func testC2PASettingsCreatedAssertionLabels() -> TestResult {
+        do {
+            let settings = try C2PASettings(createdAssertionLabels: ["com.example.custom"])
+            _ = settings
+            return .success("Settings Created Labels", "[PASS] C2PASettings created from an explicit label list")
+        } catch {
+            return .failure("Settings Created Labels", "Failed: \(error)")
+        }
+    }
+
+    public func testC2PASettingsAdditionalCreatedAssertionLabels() -> TestResult {
+        do {
+            // A label already in the defaults must not break construction when repeated.
+            let settings = try C2PASettings(
+                additionalCreatedAssertionLabels: ["com.example.custom", "c2pa.actions"])
+            _ = settings
+            return .success(
+                "Settings Additional Created Labels",
+                "[PASS] C2PASettings created from defaults plus extra labels")
+        } catch {
+            return .failure("Settings Additional Created Labels", "Failed: \(error)")
+        }
+    }
+
     public func runAllTests() async -> [TestResult] {
         return [
             testRoundTrip(),
@@ -682,7 +717,10 @@ public final class SettingsDefinitionTests: TestImplementation {
             testC2PASettingsSetValueErrors(),
             testSignerWithRoles(),
             testActionTemplateWithIndex(),
-            testTimestampParentScope()
+            testTimestampParentScope(),
+            testBuilderDefaultCreatedAssertionLabels(),
+            testC2PASettingsCreatedAssertionLabels(),
+            testC2PASettingsAdditionalCreatedAssertionLabels()
         ]
     }
 }
