@@ -1,0 +1,189 @@
+# Temporary, one-off validation for the c2pa-rs 0.91.0 breaking-train RC.
+#
+# Why not the existing RC tracker (track-c2pa-rs-rc.yml): this train's
+# prerelease is tagged `c2pa-rc-v0.91.0-rc.1` upstream, not the
+# `c2pa-v0.91.0-rc.1` shape earlier RCs used. resolve-c2pa-version.sh only
+# recognises the `c2pa-v*` tag family, and the C2PAC build phase in
+# Library/Library.xcodeproj/project.pbxproj reconstructs the release tag as
+# `c2pa-${C2PA_VERSION}` -- neither matches the new `c2pa-rc-v*` shape, so
+# the tracker quietly no-ops instead of picking this release up. That
+# mismatch is a separate bug to fix in the tracker itself; this workflow
+# exists only to validate against the RC in the meantime.
+#
+# The RC release already publishes all seven Apple c2pa-c-ffi archives, so
+# this downloads them directly from the known tag and feeds them to the
+# existing C2PA_ARCHIVE_DIR override (see README.md, "Building against a
+# local c2pa-rs checkout") -- no change to Configurations/Base.xcconfig,
+# Package.swift, or the tracker scripts.
+#
+# Delete this file once the RC train resolves (promotes to stable or is
+# abandoned).
+name: Test c2pa-rs 0.91.0-rc.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/c2pa-rs-0.91.0-rc.1]
+
+env:
+  SCHEME: Library
+  C2PA_RS_TAG: c2pa-rc-v0.91.0-rc.1
+  C2PA_RS_VERSION: v0.91.0-rc.1
+
+jobs:
+  test:
+    name: ${{ matrix.name }} Xcode ${{ matrix.xcode }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "iPhone 16 Pro"
+            platform: ios
+            device: "iPhone 16 Pro"
+            ios: "18.5"
+            xcode: "16.4"
+            destination: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
+          - name: "iPhone 16"
+            platform: ios
+            device: "iPhone 16"
+            ios: "18.5"
+            xcode: "16.4"
+            destination: "platform=iOS Simulator,name=iPhone 16,OS=18.5"
+          - name: "macOS"
+            platform: macos
+            xcode: "16.4"
+            destination: "platform=macOS"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode ${{ matrix.xcode }}
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ matrix.xcode }}
+
+      - name: Verify Xcode version
+        run: xcodebuild -version
+
+      - name: Download c2pa-rs ${{ env.C2PA_RS_VERSION }} Apple archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/c2pa-archives"
+
+          # shellcheck source=.github/scripts/c2pa-apple-targets.sh
+          . .github/scripts/c2pa-apple-targets.sh
+          for target in $C2PA_APPLE_TARGETS; do
+            gh release download "$C2PA_RS_TAG" \
+              --repo contentauth/c2pa-rs \
+              --dir "$RUNNER_TEMP/c2pa-archives" \
+              --pattern "c2pa-${C2PA_RS_VERSION}-${target}.zip"
+          done
+          ls -l "$RUNNER_TEMP/c2pa-archives"
+
+      - name: Ensure Simulator is Available
+        if: matrix.platform == 'ios'
+        run: |
+          DEVICE_NAME="${{ matrix.device }}"
+          IOS_VERSION="${{ matrix.ios }}"
+          RUNTIME="iOS-${IOS_VERSION//./-}"
+
+          echo "Looking for simulator: $DEVICE_NAME with iOS $IOS_VERSION"
+
+          echo "Available runtimes:"
+          xcrun simctl list runtimes
+
+          echo "Available device types:"
+          xcrun simctl list devicetypes | grep -i iphone | head -20
+
+          EXISTING_UDID=$(xcrun simctl list devices "$IOS_VERSION" | grep "$DEVICE_NAME" | grep -oE '[A-F0-9-]{36}' | head -1)
+
+          if [ -n "$EXISTING_UDID" ]; then
+            echo "Simulator found with UDID: $EXISTING_UDID"
+          else
+            echo "Simulator not found, creating one..."
+
+            RUNTIME_ID=$(xcrun simctl list runtimes | grep "iOS $IOS_VERSION" | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]+' | head -1)
+
+            if [ -z "$RUNTIME_ID" ]; then
+              echo "ERROR: iOS $IOS_VERSION runtime not found"
+              echo "Available iOS runtimes:"
+              xcrun simctl list runtimes | grep iOS
+              exit 1
+            fi
+
+            echo "Using runtime: $RUNTIME_ID"
+
+            DEVICE_TYPE=$(xcrun simctl list devicetypes | grep "$DEVICE_NAME" | grep -oE 'com.apple.CoreSimulator.SimDeviceType.[^,)]+' | head -1)
+
+            if [ -z "$DEVICE_TYPE" ]; then
+              echo "ERROR: Device type for '$DEVICE_NAME' not found"
+              echo "Available iPhone device types:"
+              xcrun simctl list devicetypes | grep -i iphone
+              exit 1
+            fi
+
+            echo "Using device type: $DEVICE_TYPE"
+
+            EXISTING_UDID=$(xcrun simctl create "$DEVICE_NAME" "$DEVICE_TYPE" "$RUNTIME_ID")
+            echo "Created simulator with UDID: $EXISTING_UDID"
+          fi
+
+          STATE=$(xcrun simctl list devices | grep "$EXISTING_UDID" | grep -oE '\(Booted\)|\(Shutdown\)' | tr -d '()')
+
+          if [ "$STATE" != "Booted" ]; then
+            echo "Booting simulator..."
+            xcrun simctl boot "$EXISTING_UDID" || true
+          fi
+
+          echo "Waiting for simulator to be ready..."
+          xcrun simctl bootstatus "$EXISTING_UDID" -b
+
+          echo "Simulator is ready!"
+          xcrun simctl list devices | grep "$DEVICE_NAME"
+
+      - name: Build Library
+        run: make library DESTINATION="${{ matrix.destination }}" C2PA_ARCHIVE_DIR="$RUNNER_TEMP/c2pa-archives"
+
+      - name: Start Signing Server
+        run: |
+          make signing-server-start
+          sleep 5
+
+      - name: Wait for Server to be Ready
+        run: make signing-server-wait
+
+      - name: Verify Server Endpoints
+        run: make signing-server-verify
+
+      - name: Build & Test
+        run: |
+          set -o pipefail
+          echo "Testing with server at http://127.0.0.1:8080"
+          TEST_RUNNER_CI=true make test-library DESTINATION="${{ matrix.destination }}" C2PA_ARCHIVE_DIR="$RUNNER_TEMP/c2pa-archives"
+
+      - name: Generate test summary
+        if: always()
+        run: make test-summary
+
+      - name: Upload test summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestSummary-rc1-${{ matrix.xcode }}-${{ matrix.name }}
+          path: |
+            TestResults.xcresult
+          if-no-files-found: warn
+
+      - name: Stop Signing Server
+        if: always()
+        run: make signing-server-stop || true
+
+      - name: Upload Server Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs-rc1-${{ matrix.xcode }}-${{ matrix.name }}
+          path: signing-server.log
