@@ -72,6 +72,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       proceed: ${{ steps.guard.outputs.proceed }}
       main_sha: ${{ steps.guard.outputs.main_sha }}
+      main_pin: ${{ steps.guard.outputs.main_pin }}
       upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
       previous_target: ${{ steps.guard.outputs.previous_target }}
     steps:
@@ -114,7 +115,22 @@ jobs:
 
           stable_arg=""
           if [ "$MODE" = "rc" ]; then
+            # Guarded the same way as the resolve below: a bare command
+            # substitution here would let exit 3 ("nothing to track") kill the
+            # whole job under set -e, and report-resolve-failure would then
+            # blame the asset preflight for something that is not an error.
+            set +e
             stable="$(.github/scripts/resolve-c2pa-version.sh --mode stable < "$RUNNER_TEMP/releases.json")"
+            stable_code=$?
+            set -e
+
+            if [ "$stable_code" -eq 3 ]; then
+              echo "No published stable release to floor the rc search against; nothing to track."
+              echo "version=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$stable_code" -eq 0 ] || exit "$stable_code"
+
             echo "Current stable release: $stable"
             stable_arg="--stable $stable"
           fi
@@ -149,6 +165,7 @@ jobs:
         id: guard
         if: steps.resolve.outputs.version != ''
         env:
+          MODE: ${{ inputs.mode }}
           BRANCH: ${{ inputs.branch }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
@@ -156,11 +173,25 @@ jobs:
           main_sha="$(git rev-parse origin/main)"
           echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
 
-          # main mode: remember what the branch tracked before this run, for
-          # the compare link in the report. Sync force-pushes the branch before
-          # report runs, so this is the only place the old tip is still visible.
+          # The version main is pinned to right now, read at the exact SHA the
+          # rest of the run is built from. Downstream this answers "would this
+          # sync actually change anything", which is what stops the full matrix
+          # and the promotion PR running against a tracking branch that is
+          # content-identical to main. Empty in main mode, which has no pin.
+          main_pin=""
+          if [ "$MODE" != "main" ]; then
+            main_pin="$(git show "${main_sha}:Configurations/Base.xcconfig" | grep '^C2PA_VERSION' | cut -d'=' -f2 | xargs)"
+            echo "main is pinned to ${main_pin}; this run resolved ${VERSION}"
+          fi
+          echo "main_pin=${main_pin}" >> "$GITHUB_OUTPUT"
+
+          # main mode only: remember what the branch tracked before this run,
+          # for the compare link in the report. Sync force-pushes the branch
+          # before report runs, so this is the only place the old tip is still
+          # visible. The marker regex matches main@<sha> and nothing else, so
+          # computing it for stable/rc would always yield an empty string.
           previous=""
-          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
+          if [ "$MODE" = "main" ] && git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
             previous="$(git log -1 --format=%B "origin/${BRANCH}" | sed -n 's/^c2pa-track: [0-9a-f]* \(main@[0-9a-f]*\)$/\1/p' | head -1)"
           fi
           echo "previous_target=${previous}" >> "$GITHUB_OUTPUT"
@@ -322,17 +353,34 @@ jobs:
       - name: Record Outcome
         id: outcome
         if: always()
+        env:
+          ARCHIVES: ${{ steps.archives.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          PUSH: ${{ steps.push.outcome }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.archives.outcome }}" = "failure" ]; then
-            echo "result=build-failure" >> "$GITHUB_OUTPUT"
-          elif [ "${{ steps.build.outcome }}" != "success" ]; then
-            echo "result=failure" >> "$GITHUB_OUTPUT"
-          elif [ "${{ steps.push.outcome }}" != "success" ]; then
-            echo "result=not-pushed" >> "$GITHUB_OUTPUT"
+
+          # Every diagnosis below is an equality check against 'failure', never
+          # `!= success`. A step that never ran reports 'skipped', and treating
+          # that as its own failure mode is how an unrelated early failure --
+          # checkout, Xcode setup -- ends up being reported to a human as a
+          # build or test break against upstream.
+          if [ "$ARCHIVES" = "failure" ]; then
+            result=build-failure
+          elif [ "$BUILD" = "failure" ]; then
+            result=failure
+          elif [ "$BUILD" != "success" ]; then
+            # The test step neither failed nor succeeded: something earlier in
+            # the job died and skipped it. Nothing was learned about upstream.
+            result=infra-failure
+          elif [ "$PUSH" != "success" ]; then
+            result=not-pushed
           else
-            echo "result=success" >> "$GITHUB_OUTPUT"
+            result=success
           fi
+
+          echo "archives=${ARCHIVES} build=${BUILD} push=${PUSH} -> ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
 
   # The full simulator matrix runs once, only for the stable tracker, only when
   # test-library already passed AND the branch was actually pushed, and only
@@ -341,18 +389,31 @@ jobs:
   # This must be a job here rather than a push-triggered run: pushes made with
   # GITHUB_TOKEN do not trigger other workflows, and track/** is excluded from
   # test.yml's push trigger anyway.
+  #
+  # Skipped when the resolved version already equals main's pin. In that case
+  # the pin rewrite is a no-op and the branch is main plus an empty marker
+  # commit -- content-identical to main -- so this would re-run the exact suite
+  # test.yml already ran on the same push. Without that condition every push to
+  # main pays for the matrix twice, forever, because the idempotence guard keys
+  # on (main SHA, version) and the main SHA changes on every push. On macOS
+  # runners that is the expensive kind of forever.
   matrix:
     name: Full Matrix
     needs: [resolve, sync]
-    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && inputs.dry_run != true }}
+    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && inputs.dry_run != true && needs.resolve.outputs.version != needs.resolve.outputs.main_pin }}
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ inputs.branch }}
 
+  # Same version condition as the matrix, for a different reason: with the pin
+  # already on main there is no diff to promote, and gh would open a PR whose
+  # only content is the empty marker commit. That happens on the first push to
+  # main after a promotion PR merges -- the previous PR is closed, so the
+  # open-PR lookup finds nothing and creates a fresh empty one.
   promote:
     name: Open Promotion PR
     needs: [resolve, sync, matrix]
-    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && needs.matrix.result == 'success' && inputs.dry_run != true }}
+    if: ${{ inputs.mode == 'stable' && needs.sync.outputs.result == 'success' && needs.matrix.result == 'success' && inputs.dry_run != true && needs.resolve.outputs.version != needs.resolve.outputs.main_pin }}
     runs-on: ubuntu-latest
     steps:
       # Check out the tracking branch itself, not the default ref, so the PR
@@ -499,7 +560,10 @@ jobs:
             urgency="Informational. This is the earliest warning available: upstream \`main\` at \`${UPSTREAM_SHA}\` does not work with our \`main\`. Nothing is released yet; the change may still be reverted upstream, or it may be the first sign of the next breaking train."
           fi
 
-          if [ "$SYNC_RESULT" = "build-failure" ]; then
+          if [ "$SYNC_RESULT" = "infra-failure" ]; then
+            result="infra-failure"
+            state_note="The sync job died before it could build or test anything -- a runner, checkout, Xcode or toolchain problem, not an upstream change. **Nothing was learned about ${VERSION} from this run.** Check the failing step in the run below; a re-run usually clears it."
+          elif [ "$SYNC_RESULT" = "build-failure" ]; then
             result="build-failure"
             state_note="The c2pa-c-ffi C API did not compile or package for at least one Apple target, so \`make test-library\` never ran. The job log shows which target; whatever archives did build are attached to the run below. The tracking branch (\`${BRANCH}\`) was still pushed and records the upstream SHA."
           elif [ "$SYNC_RESULT" = "failure" ]; then
@@ -517,6 +581,14 @@ jobs:
           else
             result="promote-${PROMOTE_RESULT}"
             state_note="Everything passed -- \`make test-library\`, the full simulator matrix, and the push -- but opening or updating the promotion PR failed. The tracking branch (\`${BRANCH}\`) is correct and reflects ${VERSION}; only the PR is missing or stale, so any open PR from this branch may still name an older version and must not be merged on the strength of its title. This is a permissions or \`gh\` problem, not an upstream break."
+          fi
+
+          # An infra failure reached no upstream code, so the mode-based urgency
+          # above would be asserting something this run cannot support -- in
+          # stable mode it would read "Urgent, main cannot move to this version"
+          # about a version that was never actually tested.
+          if [ "$result" = "infra-failure" ]; then
+            urgency="Informational. This run failed for infrastructure reasons before reaching any upstream code, so it says nothing about ${VERSION} in either direction."
           fi
 
           {
@@ -583,7 +655,7 @@ jobs:
             if [ "$MODE" = "main" ]; then
               echo "**Likely cause:** the commits API could not resolve \`${UPSTREAM_REF}\` on the upstream repository -- a mistyped \`upstream_ref\` on a manual dispatch, or a transient GitHub API error (rate limit, timeout). The latter clears on its own on the next scheduled run."
             else
-              echo "**Likely cause:** the asset preflight. Upstream added, renamed, or dropped an Apple target archive on the release, so the release no longer carries every archive this repo expects. Bring the target list in \`.github/scripts/c2pa-apple-targets.sh\` back in lockstep with the \`download_and_extract\` calls in the C2PAC framework build phase in \`Library/Library.xcodeproj/project.pbxproj\` -- the two must always change together."
+              echo "**Likely cause:** the asset preflight. Upstream added, renamed, or dropped an Apple target archive on the release, so the release no longer carries every archive this repo expects. Bring the target list in \`.github/scripts/c2pa-apple-targets.sh\` back in lockstep with the \`*_SUFFIX\` assignments in the C2PAC framework build phase in \`Library/Library.xcodeproj/project.pbxproj\` -- the two must always change together, and the \`Check C2PA target lists agree\` lint step enforces it."
               echo
               echo "**Other possibility:** a transient GitHub releases-API error (rate limit, timeout). This clears on its own on the next scheduled run; no action needed if it does not recur."
             fi

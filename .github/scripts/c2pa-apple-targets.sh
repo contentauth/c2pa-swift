@@ -6,7 +6,7 @@
 # build-c2pa-archives.sh (self-built archives for the main tracker). The
 # list must match the *_SUFFIX assignments in the C2PAC build phase in
 # Library/Library.xcodeproj/project.pbxproj; the two must always change
-# together.
+# together, and check-target-drift.sh fails the lint job if they do not.
 # shellcheck disable=SC2034
 C2PA_APPLE_TARGETS="
 aarch64-apple-ios
