@@ -129,10 +129,11 @@ public enum TestUtilities {
         return pngData
     }
 
-    // Sample manifest JSON for testing. The actions assertion's first action
-    // must be c2pa.created or c2pa.opened per the c2pa spec, and a
-    // c2pa.created action must carry a digitalSourceType; this manifest
-    // always describes a newly created asset, never an edit of one.
+    // Sample manifest JSON for signing a new asset.
+    //
+    // The first action must be c2pa.created or c2pa.opened: c2pa-rs verifies the
+    // manifest it just signed and rejects one whose actions do not start that way.
+    // c2pa.created also needs a digitalSourceType.
     public static func createTestManifestJSON(claimGenerator: String = "test_app/1.0") -> String {
         """
         {
@@ -149,6 +150,21 @@ public enum TestUtilities {
                         ]
                     }
                 },
+                {"label": "c2pa.test", "data": {"test": true}}
+            ]
+        }
+        """
+    }
+
+    // Sample manifest JSON for signing over an existing asset.
+    //
+    // Carries no inception action so that Builder.setIntent(.edit) can add the
+    // parent ingredient from the source stream and the c2pa.opened action for it.
+    public static func createTestEditManifestJSON(claimGenerator: String = "test_app/1.0") -> String {
+        """
+        {
+            "claim_generator": "\(claimGenerator)",
+            "assertions": [
                 {"label": "c2pa.test", "data": {"test": true}}
             ]
         }

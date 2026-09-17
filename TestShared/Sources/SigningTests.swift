@@ -545,10 +545,12 @@ public final class SigningTests: TestImplementation {
             }
             testSteps.append("Verified source has existing manifest")
 
-            // Now sign it again with a new manifest
+            // Now sign it again with a new manifest. The edit intent makes the
+            // existing manifest the parent ingredient and opens it.
             let signer = try TestUtilities.createTestSigner()
-            let manifestJSON = TestUtilities.createTestManifestJSON(claimGenerator: "double_sign_test/1.0")
+            let manifestJSON = TestUtilities.createTestEditManifestJSON(claimGenerator: "double_sign_test/1.0")
             let builder = try Builder(manifestJSON: manifestJSON)
+            try builder.setIntent(.edit)
 
             let signSourceStream = try Stream(readFrom: sourceFile)
             let destStream = try Stream(writeTo: destFile)

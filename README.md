@@ -181,11 +181,26 @@ let signerInfo = SignerInfo(
     tsaURL: nil
 )
 
+// The first action must be c2pa.created (new asset) or c2pa.opened (derived
+// from a parent ingredient); the signed manifest is verified and rejected otherwise.
 let manifestJSON = """
 {
     "claim_generator": "MyApp/1.0",
     "title": "Signed Image",
-    "format": "image/jpeg"
+    "format": "image/jpeg",
+    "assertions": [
+        {
+            "label": "c2pa.actions",
+            "data": {
+                "actions": [
+                    {
+                        "action": "c2pa.created",
+                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+                    }
+                ]
+            }
+        }
+    ]
 }
 """
 

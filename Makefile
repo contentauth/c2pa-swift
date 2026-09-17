@@ -9,7 +9,7 @@
 CONFIGURATION := Release
 SDK := iphoneos
 # Default destination - can be overridden from command line
-DESTINATION ?= platform=iOS Simulator,name=iPhone 17 Pro
+DESTINATION ?= platform=iOS Simulator,name=iPhone 18 Pro
 MACOS_DESTINATION ?= platform=macOS
 
 # Disable code signing for unit-test invocations so CI runners without
