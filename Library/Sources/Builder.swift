@@ -21,6 +21,12 @@ import Foundation
 /// Use this class when you need more control than the convenience methods
 /// in ``C2PA`` provide.
 ///
+/// The signed manifest is verified before ``sign(format:source:destination:signer:)``
+/// returns, and its first action must be `c2pa.created` (a new asset, with a
+/// `digitalSourceType`) or `c2pa.opened` (derived from a parent ingredient).
+/// Either declare that action in the manifest's `c2pa.actions` assertion or call
+/// ``setIntent(_:)`` and let the builder add it.
+///
 /// ## Topics
 ///
 /// ### Creating a Builder

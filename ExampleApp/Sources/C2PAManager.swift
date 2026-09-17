@@ -1141,6 +1141,7 @@ final class C2PAManager: ObservableObject {
                 "actions": [
                     [
                         "action": "c2pa.created",
+                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
                         "when": ISO8601DateFormatter().string(from: Date()),
                         "softwareAgent": claimGenerator,
                         "description": signingMethodDescription
