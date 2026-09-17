@@ -59,7 +59,7 @@ concurrency:
 
 env:
   # Must match a simulator present on the pinned Xcode. The Makefile default
-  # (iPhone 17 Pro) does not exist on Xcode 16.4, and every other workflow
+  # (iPhone 18 Pro) does not exist on Xcode 16.4, and every other workflow
   # here overrides it the same way.
   SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
 
