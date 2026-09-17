@@ -271,9 +271,7 @@ public final class StreamTests: TestImplementation {
             let sourceStream = try Stream(readFrom: sourceFile)
             let destStream = try Stream(writeTo: destFile)
 
-            let manifestJSON = """
-                {"claim_generator": "StreamTest/1.0", "assertions": []}
-                """
+            let manifestJSON = TestUtilities.createTestManifestJSON(claimGenerator: "StreamTest/1.0")
 
             let builder = try Builder(manifestJSON: manifestJSON)
 

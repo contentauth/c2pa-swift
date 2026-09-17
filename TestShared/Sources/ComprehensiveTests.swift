@@ -320,14 +320,7 @@ public final class ComprehensiveTests: TestImplementation {
     }
 
     public func testEndToEndSigning() -> TestResult {
-        let manifestJSON = """
-            {
-                "claim_generator": "TestSuite/1.0",
-                "assertions": [
-                    {"label": "c2pa.test", "data": {"test": true}}
-                ]
-            }
-            """
+        let manifestJSON = TestUtilities.createTestManifestJSON(claimGenerator: "TestSuite/1.0")
 
         do {
             let builder = try Builder(manifestJSON: manifestJSON)
