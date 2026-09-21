@@ -14,6 +14,9 @@
 # override so the library is built against the RC rather than its pinned,
 # stable binary dependency.
 #
+# Retargeted from rc.3 to rc.4: rc.4 is the latest RC in this train and
+# also publishes a complete, known-good set of seven Apple archives.
+#
 # The RC release already publishes all seven Apple c2pa-c-ffi archives, so
 # this downloads them directly from the known tag and feeds them to the
 # existing C2PA_ARCHIVE_DIR override (see README.md, "Building against a
