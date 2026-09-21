@@ -10,11 +10,9 @@
 # mismatch is a separate bug to fix in the tracker itself; this workflow
 # exists only to validate against the RC in the meantime.
 #
-# Retargeted from rc.1 to rc.3: rc.1 and rc.2 each had a release-asset
-# problem upstream (see the c2pa-rs release notes for rc.3) before all
-# seven Apple archives ever made it onto the release, so validation never
-# completed against them. rc.3 is the first build in this train with a
-# complete, known-good asset set.
+# Retargeted to rc.4 after its release, retaining this workflow's archive
+# override so the library is built against the RC rather than its pinned,
+# stable binary dependency.
 #
 # The RC release already publishes all seven Apple c2pa-c-ffi archives, so
 # this downloads them directly from the known tag and feeds them to the
@@ -24,7 +22,7 @@
 #
 # Delete this file once the RC train resolves (promotes to stable or is
 # abandoned).
-name: Test c2pa-rs 0.91.0-rc.3
+name: Test c2pa-rs 0.91.0-rc.4
 
 on:
   workflow_dispatch:
@@ -33,8 +31,8 @@ on:
 
 env:
   SCHEME: Library
-  C2PA_RS_TAG: c2pa-rc-v0.91.0-rc.3
-  C2PA_RS_VERSION: v0.91.0-rc.3
+  C2PA_RS_TAG: c2pa-rc-v0.91.0-rc.4
+  C2PA_RS_VERSION: v0.91.0-rc.4
 
 jobs:
   test:
@@ -178,7 +176,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: TestSummary-rc3-${{ matrix.xcode }}-${{ matrix.name }}
+          name: TestSummary-rc4-${{ matrix.xcode }}-${{ matrix.name }}
           path: |
             TestResults.xcresult
           if-no-files-found: warn
@@ -191,5 +189,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: server-logs-rc3-${{ matrix.xcode }}-${{ matrix.name }}
+          name: server-logs-rc4-${{ matrix.xcode }}-${{ matrix.name }}
           path: signing-server.log
