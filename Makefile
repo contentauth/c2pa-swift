@@ -9,7 +9,8 @@
 CONFIGURATION := Release
 SDK := iphoneos
 # Default destination - can be overridden from command line
-DESTINATION ?= platform=iOS Simulator,name=iPhone 18 Pro
+SIMULATOR_NAME ?= iPhone 18 Pro
+DESTINATION ?= platform=iOS Simulator,name=$(SIMULATOR_NAME)
 MACOS_DESTINATION ?= platform=macOS
 
 # Disable code signing for unit-test invocations so CI runners without
@@ -171,16 +172,16 @@ coverage: library
 # Run test app
 run-test-app: test-app
 	@echo "Running test app..."
-	@xcrun simctl boot "iPhone 16 Pro" || true
-	@xcrun simctl install "iPhone 16 Pro" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/TestApp.app"
-	@xcrun simctl launch "iPhone 16 Pro" org.contentauth.TestApp
+	@xcrun simctl boot "$(SIMULATOR_NAME)" || true
+	@xcrun simctl install "$(SIMULATOR_NAME)" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/TestApp.app"
+	@xcrun simctl launch "$(SIMULATOR_NAME)" org.contentauth.TestApp
 
 # Run example app
 run-example-app: example-app
 	@echo "Running example app..."
-	@xcrun simctl boot "iPhone 16 Pro" || true
-	@xcrun simctl install "iPhone 16 Pro" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/ExampleApp.app"
-	@xcrun simctl launch "iPhone 16 Pro" org.contentauth.ExampleApp
+	@xcrun simctl boot "$(SIMULATOR_NAME)" || true
+	@xcrun simctl install "$(SIMULATOR_NAME)" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/ExampleApp.app"
+	@xcrun simctl launch "$(SIMULATOR_NAME)" org.contentauth.ExampleApp
 
 # Archive library for distribution
 publish: library
@@ -229,7 +230,7 @@ release-tests:
 	@if [ -d "example" ]; then \
 		cd example && xcodebuild test \
 			-scheme C2PAExample \
-			-destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.4' \
+			-destination '$(DESTINATION)' \
 			| xcpretty --test --color || true; \
 	else \
 		echo "Example directory not found, running library tests instead"; \
