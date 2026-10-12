@@ -1008,6 +1008,11 @@ final class ContextTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testContextCancelFromAnotherThread() throws {
+        let result = tests.testContextCancelFromAnotherThread()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testBuilderFromContext() throws {
         let result = tests.testBuilderFromContext()
         XCTAssertTrue(result.passed, result.message)
