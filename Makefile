@@ -3,7 +3,7 @@
         tests-with-server workspace-build test-library test-library-macos lint signing-server-wait signing-server-verify \
         test-summary coverage-lcov validate-version release-tests \
         package-swift update-package-swift create-release-tag docs \
-        use-dev-package use-release-package
+        use-dev-package use-release-package spm-build
 
 # Build configuration
 CONFIGURATION := Release
@@ -209,6 +209,20 @@ use-release-package:
 		echo "Package.swift restored to release variant (URL-based binary target)"; \
 	else \
 		echo "No backup at Package.release.swift.bak; assuming Package.swift is already the release variant."; \
+	fi
+
+# Build the C2PA target through SPM against the local XCFramework, the way a
+# package consumer does. Run 'make library' first. If Package.swift is the
+# release manifest it is swapped for the build and restored afterwards, whether
+# or not the build succeeds; a checkout already in dev mode is left in dev mode.
+spm-build:
+	@if [ -f Package.release.swift.bak ]; then \
+		swift build --target C2PA; \
+	else \
+		$(MAKE) use-dev-package; \
+		swift build --target C2PA; status=$$?; \
+		$(MAKE) use-release-package; \
+		exit $$status; \
 	fi
 
 # Validate version format (expects VERSION environment variable)
@@ -450,6 +464,7 @@ help:
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"
 	@echo "  make use-dev-package - Swap Package.swift to local-path variant (for testing this checkout as a SPM dependency)"
 	@echo "  make use-release-package - Restore Package.swift to URL-based release variant"
+	@echo "  make spm-build    - Build the C2PA target through SPM against the local XCFramework"
 	@echo "  make test-shared  - Build the TestShared framework"
 	@echo "  make test-app     - Build the TestApp"
 	@echo "  make example-app  - Build the ExampleApp"

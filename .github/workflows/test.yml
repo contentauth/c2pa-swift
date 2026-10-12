@@ -160,6 +160,13 @@ jobs:
       - name: Build Library
         run: make library DESTINATION="${{ matrix.destination }}"
 
+      # The Xcode project and the SPM manifests are separate build paths, and
+      # this is the only step that compiles through the manifests. swift build
+      # targets the host, so it runs on the macOS legs.
+      - name: Build Package Through SPM
+        if: matrix.platform == 'macos'
+        run: make spm-build
+
       - name: Start Signing Server
         run: |
           make signing-server-start
