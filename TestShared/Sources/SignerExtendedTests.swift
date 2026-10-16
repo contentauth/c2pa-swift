@@ -235,12 +235,9 @@ public final class SignerExtendedTests: TestImplementation {
         }
     }
 
-    // MARK: - loadSettings Tests
+    // MARK: - Context Settings Tests
 
-    public func testLoadSettingsJSON() -> TestResult {
-        var testSteps: [String] = []
-
-        // Create a valid JSON settings string
+    public func testContextSettingsJSON() -> TestResult {
         let settingsJSON = """
         {
             "version": 1,
@@ -252,25 +249,17 @@ public final class SignerExtendedTests: TestImplementation {
         """
 
         do {
-            try Signer.loadSettings(settingsJSON, format: .json)
-            testSteps.append("Loaded JSON settings successfully")
-
+            let settings = try C2PASettings(json: settingsJSON)
+            _ = try C2PAContext(settings: settings)
             return .success(
-                "loadSettings JSON",
-                testSteps.joined(separator: "\n"))
-
+                "Context Settings JSON",
+                "Created a context from JSON settings")
         } catch {
-            // loadSettings might fail for minimal settings, but we're testing the code path
-            testSteps.append("loadSettings result: \(error)")
-            return .success(
-                "loadSettings JSON",
-                testSteps.joined(separator: "\n"))
+            return .failure("Context Settings JSON", "Failed to apply JSON settings: \(error)")
         }
     }
 
-    public func testLoadSettingsTOML() -> TestResult {
-        var testSteps: [String] = []
-
+    public func testContextSettingsTOML() -> TestResult {
         let settingsTOML = """
         version = 1
 
@@ -280,31 +269,27 @@ public final class SignerExtendedTests: TestImplementation {
         """
 
         do {
-            try Signer.loadSettings(settingsTOML, format: .toml)
-            testSteps.append("Loaded TOML settings successfully")
-
+            let settings = try C2PASettings(toml: settingsTOML)
+            _ = try C2PAContext(settings: settings)
             return .success(
-                "loadSettings TOML",
-                testSteps.joined(separator: "\n"))
-
+                "Context Settings TOML",
+                "Created a context from TOML settings")
         } catch {
-            testSteps.append("loadSettings result: \(error)")
-            return .success(
-                "loadSettings TOML",
-                testSteps.joined(separator: "\n"))
+            return .failure("Context Settings TOML", "Failed to apply TOML settings: \(error)")
         }
     }
 
-    public func testLoadSettingsInvalidJSON() -> TestResult {
+    public func testContextSettingsInvalidJSON() -> TestResult {
         do {
-            try Signer.loadSettings("{ invalid json }", format: .json)
+            let settings = try C2PASettings(json: "{ invalid json }")
+            _ = try C2PAContext(settings: settings)
             // v0.76.1+ accepts invalid JSON without error
             return .success(
-                "loadSettings Invalid JSON",
-                "loadSettings accepted invalid JSON without error (expected in v0.76.1+)")
+                "Context Settings Invalid JSON",
+                "Invalid JSON was accepted without error")
         } catch {
             return .success(
-                "loadSettings Invalid JSON",
+                "Context Settings Invalid JSON",
                 "Caught error for invalid JSON: \(error)")
         }
     }
@@ -660,9 +645,9 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testReserveSizeWithCallback())
         results.append(testExportPublicKeyPEM())
         results.append(testExportPublicKeyPEMNonExistentKey())
-        results.append(testLoadSettingsJSON())
-        results.append(testLoadSettingsTOML())
-        results.append(testLoadSettingsInvalidJSON())
+        results.append(testContextSettingsJSON())
+        results.append(testContextSettingsTOML())
+        results.append(testContextSettingsInvalidJSON())
         results.append(testSignerFromSignerInfo())
         results.append(testSignerFromSignerInfoWithTSA())
         results.append(testSignerCallbackInvocation())
