@@ -166,18 +166,6 @@ public final class C2PASettings {
         self.settingsString = updatedString
     }
 
-    /// Creates a ``Signer`` from the loaded settings.
-    ///
-    /// - Returns: A configured ``Signer`` instance.
-    /// - Throws: ``C2PAError`` if a signer cannot be created from the settings.
-    public func createSigner() throws -> Signer {
-        if format == "json" {
-            return try Signer(settingsJSON: settingsString)
-        } else {
-            return try Signer(settingsTOML: settingsString)
-        }
-    }
-
     // MARK: - Private
 
     /// Allocates a native settings handle and applies the given string,
