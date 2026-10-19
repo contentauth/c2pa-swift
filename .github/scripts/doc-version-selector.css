@@ -1,0 +1,28 @@
+#c2pa-doc-version-selector {
+  position: fixed;
+  right: 1rem;
+  /* Leave DocC's footer theme controls accessible. */
+  bottom: 4rem;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid GrayText;
+  border-radius: 0.5rem;
+  color: CanvasText;
+  background: Canvas;
+  font: 14px system-ui, sans-serif;
+}
+
+#c2pa-doc-version-selector select {
+  color: inherit;
+  background: inherit;
+  font: inherit;
+}
+
+@media print {
+  #c2pa-doc-version-selector {
+    display: none;
+  }
+}
