@@ -17,6 +17,53 @@ C2PA Swift offers:
 
 For information on contributing to the project, see [Project contributions](https://github.com/contentauth/c2pa-swift/tree/main/docs/project-contributions.md).
 
+## API documentation
+
+The [API documentation](https://contentauth.github.io/c2pa-swift/) is generated
+with DocC from selected published releases. Use the version selector to switch
+releases. The first tag in [docs/versions.json](docs/versions.json) is the default
+at the existing `/c2pa-swift/documentation/c2pa/` URL. Each release is also
+available at `/c2pa-swift/versions/<tag>/documentation/c2pa/`.
+
+To build the versioned site locally, install Xcode 16.4 with its iOS SDK,
+Python 3.10 or newer, and the [GitHub CLI](https://cli.github.com/). Authenticate
+using `gh auth login` or `GH_TOKEN`, and fetch the selected release tags:
+
+```sh
+git fetch --tags
+make docs-versioned
+```
+
+If your active developer directory points to Command Line Tools rather than
+Xcode, select Xcode for this command without changing the system configuration:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make docs-versioned
+```
+
+The builder verifies each published release, exports its exact tag into an
+isolated temporary directory, and builds that release's Xcode workspace for a
+generic iOS Simulator destination. It does not change your checkout or require
+a running simulator. The temporary source and build directories are removed
+after the build, including on failure. GitHub authentication tokens are not
+passed to the Xcode builds.
+
+The output is `docs-output/`, with the default at `index.html` and releases
+under `versions/<tag>/`. DocC's routing uses the `/c2pa-swift` hosting base path,
+so preview it over HTTP at that path rather than opening HTML with `file://`.
+The selector stays available when navigating between DocC pages.
+
+To document another release, add its tag to [docs/versions.json](docs/versions.json)
+and put the desired default first. Publishing a release rebuilds the configured
+versions but does not automatically add it to the list. Documentation changes
+on `main` and manual workflow runs also rebuild and deploy the site. Pull
+requests build and validate the docs without deploying them.
+
+The existing `make docs` command still builds working-tree documentation.
+Run `make docs-test` for the documentation tooling tests; the selector tests
+also require Node.js 18 or newer. Set `RUN_DOCC_INTEGRATION=1` with Xcode selected
+to include a real Swift symbol-graph and DocC rendering test, as CI does.
+
 ## Repository structure
 
 ```
