@@ -116,8 +116,10 @@ public final class WebServiceSignerTests: TestImplementation {
 
     public func testAsyncSignerCreation() async -> TestResult {
         var testSteps: [String] = []
-        var asyncClosureInvoked = false
-        var dataReceived: Data?
+        // Written by the signer closure, which the signing bridge runs to completion before
+        // `sign` returns, so every read below comes after the write.
+        nonisolated(unsafe) var asyncClosureInvoked = false
+        nonisolated(unsafe) var dataReceived: Data?
 
         do {
             let signer = try Signer(

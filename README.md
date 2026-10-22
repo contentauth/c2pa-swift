@@ -44,8 +44,8 @@ c2pa-swift/
 
 ### Development
 
-- Xcode 16.0+
-- Swift 5.9+
+- Xcode 26.4+
+- Swift 6.3+
 - Xcode Command Line Tools
 - Make
 

@@ -14,7 +14,9 @@ import SwiftASN1
 import Vapor
 import X509
 
-class CertificateSigningService {
+// Sendable: all stored properties are immutable, and Vapor's StorageKey requires it
+// under the Swift 6 language mode.
+final class CertificateSigningService: Sendable {
     private let rootCA: Certificate
     private let rootCAPrivateKey: P256.Signing.PrivateKey
     private let intermediateCA: Certificate

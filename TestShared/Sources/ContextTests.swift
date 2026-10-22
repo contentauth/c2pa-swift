@@ -127,6 +127,27 @@ public final class ContextTests: TestImplementation {
         }
     }
 
+    public func testContextCancelFromAnotherThread() -> TestResult {
+        let name = "Context Cancel From Another Thread"
+        do {
+            let context = try C2PAContext()
+            let semaphore = DispatchSemaphore(value: 0)
+            // The signal/wait pair orders every access to `outcome`.
+            nonisolated(unsafe) var outcome: Result<Void, Error> = .success(())
+            // Capturing the context in a `@Sendable` closure compiles only while
+            // `C2PAContext` is `Sendable`, so this also pins the conformance.
+            DispatchQueue.global().async {
+                outcome = Result { try context.cancel() }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            try outcome.get()
+            return .success(name, "[PASS] cancel() succeeded from a second thread")
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
     public func testBuilderFromContext() -> TestResult {
         do {
             let manifestJSON = TestUtilities.createTestManifestJSON()
@@ -571,6 +592,7 @@ public final class ContextTests: TestImplementation {
             testContextDefaultCreation(),
             testContextFromSettings(),
             testContextCancel(),
+            testContextCancelFromAnotherThread(),
             testBuilderFromContext(),
             testSettingsFlowRoundtrip(),
             testProgressCallback(),

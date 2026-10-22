@@ -24,7 +24,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +37,7 @@ jobs:
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.4"
+          xcode-version: "26.6"
 
       - name: Install SwiftLint
         run: brew install swiftlint
@@ -47,26 +47,32 @@ jobs:
 
   test:
     name: ${{ matrix.name }} Xcode ${{ matrix.xcode }}
-    runs-on: macos-15
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: "iPhone 16 Pro"
+          - name: "iPhone 17 Pro"
             platform: ios
-            device: "iPhone 16 Pro"
-            ios: "18.5"
-            xcode: "16.4"
-            destination: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
-          - name: "iPhone 16"
+            device: "iPhone 17 Pro"
+            ios: "26.5"
+            xcode: "26.6"
+            destination: "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5"
+          - name: "iPhone 17"
             platform: ios
-            device: "iPhone 16"
-            ios: "18.5"
-            xcode: "16.4"
-            destination: "platform=iOS Simulator,name=iPhone 16,OS=18.5"
+            device: "iPhone 17"
+            ios: "26.5"
+            xcode: "26.6"
+            destination: "platform=iOS Simulator,name=iPhone 17,OS=26.5"
           - name: "macOS"
             platform: macos
-            xcode: "16.4"
+            xcode: "26.6"
+            destination: "platform=macOS"
+          # The oldest toolchain the package supports: Xcode 26.4, the first to
+          # ship Swift 6.3. A macOS leg, so the SPM build runs on it too.
+          - name: "macOS"
+            platform: macos
+            xcode: "26.4.1"
             destination: "platform=macOS"
 
     steps:
@@ -154,6 +160,13 @@ jobs:
       - name: Build Library
         run: make library DESTINATION="${{ matrix.destination }}"
 
+      # The Xcode project and the SPM manifests are separate build paths, and
+      # this is the only step that compiles through the manifests. swift build
+      # targets the host, so it runs on the macOS legs.
+      - name: Build Package Through SPM
+        if: matrix.platform == 'macos'
+        run: make spm-build
+
       - name: Start Signing Server
         run: |
           make signing-server-start
@@ -219,7 +232,7 @@ jobs:
           slug: contentauth/c2pa-swift
           files: ./coverage.lcov,./coverage.json
           flags: unittests
-          name: c2pa-swift-${{ matrix.name }}
+          name: c2pa-swift-${{ matrix.name }}-Xcode-${{ matrix.xcode }}
           fail_ci_if_error: false
           verbose: true
 

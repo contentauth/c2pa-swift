@@ -3,13 +3,14 @@
         tests-with-server workspace-build test-library test-library-macos lint signing-server-wait signing-server-verify \
         test-summary coverage-lcov validate-version release-tests \
         package-swift update-package-swift create-release-tag docs \
-        use-dev-package use-release-package
+        use-dev-package use-release-package spm-build
 
 # Build configuration
 CONFIGURATION := Release
 SDK := iphoneos
 # Default destination - can be overridden from command line
-DESTINATION ?= platform=iOS Simulator,name=iPhone 18 Pro
+SIMULATOR_NAME ?= iPhone 18 Pro
+DESTINATION ?= platform=iOS Simulator,name=$(SIMULATOR_NAME)
 MACOS_DESTINATION ?= platform=macOS
 
 # Disable code signing for unit-test invocations so CI runners without
@@ -171,16 +172,16 @@ coverage: library
 # Run test app
 run-test-app: test-app
 	@echo "Running test app..."
-	@xcrun simctl boot "iPhone 16 Pro" || true
-	@xcrun simctl install "iPhone 16 Pro" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/TestApp.app"
-	@xcrun simctl launch "iPhone 16 Pro" org.contentauth.TestApp
+	@xcrun simctl boot "$(SIMULATOR_NAME)" || true
+	@xcrun simctl install "$(SIMULATOR_NAME)" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/TestApp.app"
+	@xcrun simctl launch "$(SIMULATOR_NAME)" org.contentauth.TestApp
 
 # Run example app
 run-example-app: example-app
 	@echo "Running example app..."
-	@xcrun simctl boot "iPhone 16 Pro" || true
-	@xcrun simctl install "iPhone 16 Pro" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/ExampleApp.app"
-	@xcrun simctl launch "iPhone 16 Pro" org.contentauth.ExampleApp
+	@xcrun simctl boot "$(SIMULATOR_NAME)" || true
+	@xcrun simctl install "$(SIMULATOR_NAME)" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/ExampleApp.app"
+	@xcrun simctl launch "$(SIMULATOR_NAME)" org.contentauth.ExampleApp
 
 # Archive library for distribution
 publish: library
@@ -210,6 +211,20 @@ use-release-package:
 		echo "No backup at Package.release.swift.bak; assuming Package.swift is already the release variant."; \
 	fi
 
+# Build the C2PA target through SPM against the local XCFramework, the way a
+# package consumer does. Run 'make library' first. If Package.swift is the
+# release manifest it is swapped for the build and restored afterwards, whether
+# or not the build succeeds; a checkout already in dev mode is left in dev mode.
+spm-build:
+	@if [ -f Package.release.swift.bak ]; then \
+		swift build --target C2PA; \
+	else \
+		$(MAKE) use-dev-package; \
+		swift build --target C2PA; status=$$?; \
+		$(MAKE) use-release-package; \
+		exit $$status; \
+	fi
+
 # Validate version format (expects VERSION environment variable)
 validate-version:
 	@echo "Validating version format..."
@@ -229,7 +244,7 @@ release-tests:
 	@if [ -d "example" ]; then \
 		cd example && xcodebuild test \
 			-scheme C2PAExample \
-			-destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.4' \
+			-destination '$(DESTINATION)' \
 			| xcpretty --test --color || true; \
 	else \
 		echo "Example directory not found, running library tests instead"; \
@@ -449,6 +464,7 @@ help:
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"
 	@echo "  make use-dev-package - Swap Package.swift to local-path variant (for testing this checkout as a SPM dependency)"
 	@echo "  make use-release-package - Restore Package.swift to URL-based release variant"
+	@echo "  make spm-build    - Build the C2PA target through SPM against the local XCFramework"
 	@echo "  make test-shared  - Build the TestShared framework"
 	@echo "  make test-app     - Build the TestApp"
 	@echo "  make example-app  - Build the ExampleApp"

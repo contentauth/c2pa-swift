@@ -110,8 +110,8 @@ try builder.sign(
 ## Platform Requirements
 
 - iOS 16.0+ / macOS 14.0+
-- Xcode 13.0+
-- Swift 5.9+
+- Xcode 26.4+
+- Swift 6.3+
 
 ## See Also
 
