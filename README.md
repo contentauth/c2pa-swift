@@ -26,7 +26,7 @@ at the existing `/c2pa-swift/documentation/c2pa/` URL. Each release is also
 available at `/c2pa-swift/versions/<tag>/documentation/c2pa/`.
 
 To build the versioned site locally, install Xcode 16.4 with its iOS SDK,
-Python 3.10 or newer, and the [GitHub CLI](https://cli.github.com/). Authenticate
+Bash 3.2 or newer, `jq`, Git, and the [GitHub CLI](https://cli.github.com/). Authenticate
 using `gh auth login` or `GH_TOKEN`, and fetch the selected release tags:
 
 ```sh
@@ -60,9 +60,10 @@ on `main` and manual workflow runs also rebuild and deploy the site. Pull
 requests build and validate the docs without deploying them.
 
 The existing `make docs` command still builds working-tree documentation.
-Run `make docs-test` for the documentation tooling tests; the selector tests
-also require Node.js 18 or newer. Set `RUN_DOCC_INTEGRATION=1` with Xcode selected
-to include a real Swift symbol-graph and DocC rendering test, as CI does.
+Run `make docs-test` for the documentation tooling tests, which require Bash
+3.2 or newer, `jq`, Git, and Node.js 18 or newer, but not Python or Xcode.
+Set `RUN_DOCC_INTEGRATION=1` with Xcode selected to include a real Swift
+symbol-graph and DocC rendering test, as CI does.
 
 ## Repository structure
 

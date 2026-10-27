@@ -444,17 +444,17 @@ docs:
 .PHONY: docs-versioned docs-test
 
 docs-versioned:
-	python3 .github/scripts/generate_versioned_docs.py
+	bash .github/scripts/generate-versioned-docs.sh
 
 docs-test:
-	python3 -m unittest discover -s .github/scripts -p 'test_versioned_docs.py'
+	bash .github/scripts/test-versioned-docs.sh
 	node --test .github/scripts/test-doc-version-selector.cjs
 
 # Help target
 help:
 	@echo "Available targets:"
 	@echo "  make docs-versioned - Build versioned DocC documentation from published releases"
-	@echo "  make docs-test      - Run documentation tooling tests (Python 3.10+ and Node.js 18+)"
+	@echo "  make docs-test      - Run documentation tooling tests (Bash 3.2+, jq, Git, and Node.js 18+)"
 	@echo "  make              - Build the library (default)"
 	@echo "  make lint         - Run SwiftLint on the codebase"
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"
