@@ -448,13 +448,12 @@ docs-versioned:
 
 docs-test:
 	bash .github/scripts/test-versioned-docs.sh
-	node --test .github/scripts/test-doc-version-selector.cjs
 
 # Help target
 help:
 	@echo "Available targets:"
 	@echo "  make docs-versioned - Build versioned DocC documentation from published releases"
-	@echo "  make docs-test      - Run documentation tooling tests (Bash 3.2+, jq, Git, and Node.js 18+)"
+	@echo "  make docs-test      - Run documentation tooling tests (Bash 3.2+, jq, and Git)"
 	@echo "  make              - Build the library (default)"
 	@echo "  make lint         - Run SwiftLint on the codebase"
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"

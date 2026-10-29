@@ -61,7 +61,7 @@ requests build and validate the docs without deploying them.
 
 The existing `make docs` command still builds working-tree documentation.
 Run `make docs-test` for the documentation tooling tests, which require Bash
-3.2 or newer, `jq`, Git, and Node.js 18 or newer, but not Python or Xcode.
+3.2 or newer, `jq`, and Git, but not Xcode.
 Set `RUN_DOCC_INTEGRATION=1` with Xcode selected to include a real Swift
 symbol-graph and DocC rendering test, as CI does.
 
