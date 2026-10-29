@@ -1,0 +1,60 @@
+name: Test c2pa-rs main compatibility
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    if: github.event.pull_request.head.ref == 'test/c2pa-rs-main-compat'
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve c2pa-rs main
+        id: upstream
+        run: |
+          set -euo pipefail
+          sha="$(git ls-remote https://github.com/contentauth/c2pa-rs.git refs/heads/main | cut -f1)"
+          if [ -z "$sha" ]; then
+            echo "could not resolve c2pa-rs main" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Testing c2pa-rs main at $sha"
+
+      - name: Clone c2pa-rs
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git init -q "$RUNNER_TEMP/c2pa-rs"
+          git -C "$RUNNER_TEMP/c2pa-rs" fetch -q --depth 1 \
+            https://github.com/contentauth/c2pa-rs.git "$UPSTREAM_SHA"
+          git -C "$RUNNER_TEMP/c2pa-rs" checkout -q FETCH_HEAD
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/c2pa-rs
+          key: apple-archives
+
+      - name: Build c2pa-rs Apple archives
+        run: .github/scripts/build-c2pa-archives.sh "$RUNNER_TEMP/c2pa-rs" "$RUNNER_TEMP/c2pa-archives"
+
+      - name: Run library tests
+        run: make test-library DESTINATION="$SIMULATOR_DESTINATION" C2PA_ARCHIVE_DIR="$RUNNER_TEMP/c2pa-archives"

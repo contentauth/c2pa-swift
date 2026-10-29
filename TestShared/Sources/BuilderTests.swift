@@ -617,56 +617,35 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
-    public func testDataHashedPlaceholder() -> TestResult {
-        do {
-            let context = try C2PAContext()
-            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
-            _ = try builder.dataHashedPlaceholder(reservedSize: 16 * 1024, format: "image/jpeg")
-            return .success("Data Hashed Placeholder", "[PASS] dataHashedPlaceholder returned bytes")
-        } catch let error as C2PAError {
-            return .success("Data Hashed Placeholder", "[WARN] dataHashedPlaceholder callable (error: \(error))")
-        } catch {
-            return .failure("Data Hashed Placeholder", "Error: \(error)")
-        }
-    }
-
-    public func testFormatEmbeddable() -> TestResult {
-        do {
-            let context = try C2PAContext()
-            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
-            let raw = (try? builder.placeholder(format: "image/jpeg")) ?? Data([0x00, 0x01, 0x02, 0x03])
-            _ = try Builder.formatEmbeddable(raw, format: "image/jpeg")
-            return .success("Format Embeddable", "[PASS] formatEmbeddable wrapped manifest bytes")
-        } catch let error as C2PAError {
-            return .success("Format Embeddable", "[WARN] formatEmbeddable callable (error: \(error))")
-        } catch {
-            return .failure("Format Embeddable", "Error: \(error)")
-        }
-    }
-
-    public func testSignDataHashedEmbeddable() -> TestResult {
+    public func testComposeManifest() -> TestResult {
         let tempDir = FileManager.default.temporaryDirectory
-        let assetURL = tempDir.appendingPathComponent("sdh_\(UUID().uuidString).jpg")
-        defer { try? FileManager.default.removeItem(at: assetURL) }
+        let sourceURL = tempDir.appendingPathComponent("compose_source_\(UUID().uuidString).jpg")
+        let destinationURL = tempDir.appendingPathComponent("compose_destination_\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: destinationURL)
+        }
+
         do {
             guard let imageData = TestUtilities.loadPexelsTestImage() else {
-                return .failure("Sign Data Hashed Embeddable", "Could not load test image")
+                return .failure("Compose Manifest", "Could not load test image")
             }
-            try imageData.write(to: assetURL)
+            try imageData.write(to: sourceURL)
 
-            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
-            let signer = try TestUtilities.createTestSigner()
-            let dataHash = "{\"alg\":\"sha256\",\"name\":\"jumbf manifest\",\"exclusions\":[]}"
-            _ = try builder.signDataHashedEmbeddable(
-                signer: signer,
-                dataHash: dataHash,
+            let context = try C2PAContext()
+            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+            let rawManifest = try builder.sign(
                 format: "image/jpeg",
-                asset: try Stream(readFrom: assetURL))
-            return .success("Sign Data Hashed Embeddable", "[PASS] signDataHashedEmbeddable returned bytes")
-        } catch let error as C2PAError {
-            return .success("Sign Data Hashed Embeddable", "[WARN] signDataHashedEmbeddable callable (error: \(error))")
+                source: try Stream(readFrom: sourceURL),
+                destination: try Stream(writeTo: destinationURL),
+                signer: TestUtilities.createTestSigner())
+            let embeddableManifest = try builder.composeManifest(rawManifest, format: "image/jpeg")
+            guard !embeddableManifest.isEmpty else {
+                return .failure("Compose Manifest", "composeManifest returned no bytes")
+            }
+            return .success("Compose Manifest", "[PASS] composed raw manifest for JPEG embedding")
         } catch {
-            return .failure("Sign Data Hashed Embeddable", "Error: \(error)")
+            return .failure("Compose Manifest", "Error: \(error)")
         }
     }
 
@@ -781,9 +760,7 @@ public final class BuilderTests: TestImplementation {
             testBuilderContextManifestDefinition(),
             testBuilderAddAction(),
             testAddIngredientFromArchive(),
-            testDataHashedPlaceholder(),
-            testFormatEmbeddable(),
-            testSignDataHashedEmbeddable(),
+            testComposeManifest(),
             testBuilderFromArchiveRoundtrip(),
             testBuilderHashType(),
             testBmffMerkleHashing(),
