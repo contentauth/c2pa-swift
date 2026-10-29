@@ -6,6 +6,8 @@ output/
 Library/Frameworks/
 SigningServer/Build/
 .build/
+docs-output/
+__pycache__/
 DerivedData/
 
 # Dependency directories

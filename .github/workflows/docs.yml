@@ -1,18 +1,31 @@
 name: Documentation
 
 on:
+  release:
+    types: [published]
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - "docs/versions.json"
+      - ".github/scripts/*doc*"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/release.yml"
+      - "Makefile"
+  pull_request:
+    paths:
+      - "docs/versions.json"
+      - ".github/scripts/*doc*"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/release.yml"
+      - "Makefile"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}"
   cancel-in-progress: false
 
 jobs:
@@ -21,52 +34,32 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && 'main' || github.ref }}
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check documentation tooling
+        run: bash --version && jq --version
 
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.4"
 
-      - name: Build Documentation
-        run: make docs DESTINATION="platform=iOS Simulator,name=iPhone 16 Pro"
+      - name: Test documentation tooling and DocC rendering
+        env:
+          RUN_DOCC_INTEGRATION: "1"
+        run: make docs-test
 
-      - name: Convert DocC Archive to Static HTML
-        run: |
-          DOCC_ARCHIVE=$(find .build/DerivedData/Build/Products -name "C2PA.doccarchive" -type d | head -1)
-
-          if [ -z "$DOCC_ARCHIVE" ]; then
-            echo "Error: Could not find C2PA.doccarchive"
-            exit 1
-          fi
-
-          echo "Found DocC archive at: $DOCC_ARCHIVE"
-
-          # Convert to static HTML using hosting base path
-          xcrun docc process-archive \
-            transform-for-static-hosting "$DOCC_ARCHIVE" \
-            --hosting-base-path /c2pa-swift \
-            --output-path ./docs-output
-
-          echo "Documentation converted to static HTML"
-
-          # Create redirect at root
-          cat > ./docs-output/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="utf-8">
-            <meta http-equiv="refresh" content="0; url=/c2pa-swift/documentation/c2pa/">
-            <link rel="canonical" href="/c2pa-swift/documentation/c2pa/">
-            <script>window.location.href = "/c2pa-swift/documentation/c2pa/";</script>
-          </head>
-          <body>
-            <p>Redirecting to <a href="/c2pa-swift/documentation/c2pa/">documentation</a>...</p>
-          </body>
-          </html>
-          EOF
-
-          echo "Created redirect at root"
-          ls -la ./docs-output
+      - name: Build versioned documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make docs-versioned
 
       - name: Upload Documentation Artifact
         uses: actions/upload-pages-artifact@v3
@@ -75,6 +68,10 @@ jobs:
 
   deploy-docs:
     name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
     needs: build-docs
     runs-on: ubuntu-latest
     environment:

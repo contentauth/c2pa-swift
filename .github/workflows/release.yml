@@ -127,3 +127,11 @@ jobs:
             See the README.md for detailed integration instructions.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-docs:
+    needs: build-and-release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml
