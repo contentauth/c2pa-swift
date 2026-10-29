@@ -31,29 +31,8 @@ verify_release() {
 }
 
 export_release() {
-  local root="$1" tag="$2" destination="$3" commit entry mode path
-  commit="$(git -C "$root" rev-parse --verify "refs/tags/$tag^{commit}")" || return 1
-  git -C "$root" ls-tree -rz --full-tree "$commit" > "$destination.tree" || return 1
-  while IFS= read -r -d '' entry; do
-    mode="${entry%% *}"
-    path="${entry#*$'\t'}"
-    case "$mode" in
-      100644|100755) ;;
-      *) fail "Unsafe source entry in release $tag: $path"; return 1 ;;
-    esac
-    case "/$path/" in
-      //*|*/../*|*/./*|*/.git/*|*\\*|*:*) fail "Unsafe source path in release $tag: $path"; return 1 ;;
-    esac
-  done < "$destination.tree"
-  git -C "$root" archive --format=tar "$commit" > "$destination.tar" || return 1
-  tar -xf "$destination.tar" -C "$destination" || return 1
-  local required
-  for required in C2PA.xcworkspace/contents.xcworkspacedata Library/Library.xcodeproj/project.pbxproj; do
-    [[ -f "$destination/$required" ]] || { fail "Release $tag is missing its workspace or Swift API sources."; return 1; }
-  done
-  [[ -n "$(find "$destination/Library/Sources" -type f -name '*.swift' -print -quit)" ]] || {
-    fail "Release $tag is missing Swift API sources."; return 1;
-  }
+  local root="$1" tag="$2" destination="$3"
+  git -C "$root" archive --format=tar "refs/tags/$tag" | tar -xf - -C "$destination"
 }
 
 build_archive() {
