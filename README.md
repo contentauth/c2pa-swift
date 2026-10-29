@@ -20,8 +20,8 @@ For information on contributing to the project, see [Project contributions](http
 ## API documentation
 
 The [API documentation](https://contentauth.github.io/c2pa-swift/) is generated
-with DocC from selected published releases. Use the version selector to switch
-releases. The first tag in [docs/versions.json](docs/versions.json) is the default
+with DocC from selected published releases. Use the version selector in the
+navigation bar to switch releases. The first tag in [docs/versions.json](docs/versions.json) is the default
 at the existing `/c2pa-swift/documentation/c2pa/` URL. Each release is also
 available at `/c2pa-swift/versions/<tag>/documentation/c2pa/`.
 
