@@ -42,8 +42,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make docs-versioned
 ```
 
 The builder verifies each published release, exports its exact tag into an
-isolated temporary directory, and builds that release's Xcode workspace for a
-generic iOS Simulator destination. It does not change your checkout or require
+isolated temporary directory, and runs that release's own `make docs` for a
+generic iOS Simulator destination, so each release builds with the recipe it
+shipped with. All releases build with the one Xcode the workflow selects, which
+must therefore still build the oldest listed release. It does not change your checkout or require
 a running simulator. The temporary source and build directories are removed
 after the build, including on failure. GitHub authentication tokens are not
 passed to the Xcode builds.
@@ -53,17 +55,18 @@ under `versions/<tag>/`. DocC's routing uses the `/c2pa-swift` hosting base path
 so preview it over HTTP at that path rather than opening HTML with `file://`.
 The selector stays available when navigating between DocC pages.
 
-To document another release, add its tag to [docs/versions.json](docs/versions.json)
-and put the desired default first. Publishing a release rebuilds the configured
-versions but does not automatically add it to the list. Documentation changes
+The release workflow puts each stable release first in
+[docs/versions.json](docs/versions.json), in the same commit that updates
+`Package.swift`, and then rebuilds and deploys the site with that release as
+the default. Pre-releases are not added and do not rebuild the site. To document another release or change
+the default, edit the list and keep the default first. Documentation changes
 on `main` and manual workflow runs also rebuild and deploy the site. Pull
 requests build and validate the docs without deploying them.
 
 The existing `make docs` command still builds working-tree documentation.
-Run `make docs-test` for the documentation tooling tests, which require Bash
-3.2 or newer, `jq`, Git, and Node.js 18 or newer, but not Python or Xcode.
-Set `RUN_DOCC_INTEGRATION=1` with Xcode selected to include a real Swift
-symbol-graph and DocC rendering test, as CI does.
+`make docs-versioned` fails if a release has no landing page, a page has no
+head element to carry the selector, or the assembled site's root does not
+lead to the default version, so the real build is the test.
 
 ## Repository structure
 

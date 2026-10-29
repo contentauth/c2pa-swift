@@ -11,6 +11,8 @@ on:
 jobs:
   build-and-release:
     runs-on: macos-15
+    outputs:
+      is_prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
 
     steps:
       - name: Checkout repository
@@ -66,6 +68,18 @@ jobs:
           make update-package-swift VERSION="${{ github.event.inputs.version }}" CHECKSUM="${{ env.CHECKSUM }}" GITHUB_REPOSITORY="${{ github.repository }}"
           # Show the updated file
           cat ./Package.swift
+
+      # Committed with Package.swift, so publish-docs below builds the new
+      # release as the default. Pre-releases stay out of the version list.
+      - name: Add release to versioned documentation
+        if: steps.prerelease.outputs.is_prerelease == 'false'
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          jq --arg tag "$VERSION" '.versions = [$tag] + (.versions - [$tag])' docs/versions.json > docs/versions.json.tmp
+          mv docs/versions.json.tmp docs/versions.json
+          git add docs/versions.json
+          cat docs/versions.json
 
       - name: Configure Git user
         run: |
@@ -128,8 +142,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish.
   publish-docs:
     needs: build-and-release
+    if: needs.build-and-release.outputs.is_prerelease == 'false'
     permissions:
       contents: read
       pages: write

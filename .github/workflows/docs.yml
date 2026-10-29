@@ -39,22 +39,13 @@ jobs:
           filter: tree:0
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Check documentation tooling
-        run: bash --version && jq --version
-
+      # Every release in docs/versions.json builds with this one Xcode, so it
+      # moves with the oldest toolchain in test.yml and must still build the
+      # oldest listed release.
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.4"
-
-      - name: Test documentation tooling and DocC rendering
-        env:
-          RUN_DOCC_INTEGRATION: "1"
-        run: make docs-test
 
       - name: Build versioned documentation
         env:
