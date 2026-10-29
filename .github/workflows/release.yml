@@ -67,6 +67,18 @@ jobs:
           # Show the updated file
           cat ./Package.swift
 
+      # Committed with Package.swift, so publish-docs below builds the new
+      # release as the default. Pre-releases stay out of the version list.
+      - name: Add release to versioned documentation
+        if: steps.prerelease.outputs.is_prerelease == 'false'
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          jq --arg tag "$VERSION" '.versions = [$tag] + (.versions - [$tag])' docs/versions.json > docs/versions.json.tmp
+          mv docs/versions.json.tmp docs/versions.json
+          git add docs/versions.json
+          cat docs/versions.json
+
       - name: Configure Git user
         run: |
           git config user.name "GitHub Actions"

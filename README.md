@@ -55,9 +55,11 @@ under `versions/<tag>/`. DocC's routing uses the `/c2pa-swift` hosting base path
 so preview it over HTTP at that path rather than opening HTML with `file://`.
 The selector stays available when navigating between DocC pages.
 
-To document another release, add its tag to [docs/versions.json](docs/versions.json)
-and put the desired default first. Publishing a release rebuilds the configured
-versions but does not automatically add it to the list. Documentation changes
+The release workflow puts each stable release first in
+[docs/versions.json](docs/versions.json), in the same commit that updates
+`Package.swift`, and then rebuilds and deploys the site with that release as
+the default. Pre-releases are not added. To document another release or change
+the default, edit the list and keep the default first. Documentation changes
 on `main` and manual workflow runs also rebuild and deploy the site. Pull
 requests build and validate the docs without deploying them.
 
