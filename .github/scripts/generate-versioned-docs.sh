@@ -39,11 +39,8 @@ build_archive() {
   local stage="$1" derived archive count=0
   derived="$stage/.build/DerivedData"
   (
-    cd "$stage" || exit 1
     unset GH_TOKEN GITHUB_TOKEN
-    xcodebuild docbuild -workspace C2PA.xcworkspace -scheme Library \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath "$derived" \
-      CODE_SIGNING_ALLOWED=NO
+    make -C "$stage" docs DESTINATION='generic/platform=iOS Simulator'
   ) || return 1
   [[ -d "$derived/Build/Products" ]] || { fail "Expected one C2PA.doccarchive, found 0."; return 1; }
   find "$derived/Build/Products" -type d -name C2PA.doccarchive -print0 > "$stage/.build/archives"

@@ -42,8 +42,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make docs-versioned
 ```
 
 The builder verifies each published release, exports its exact tag into an
-isolated temporary directory, and builds that release's Xcode workspace for a
-generic iOS Simulator destination. It does not change your checkout or require
+isolated temporary directory, and runs that release's own `make docs` for a
+generic iOS Simulator destination, so each release builds with the recipe it
+shipped with. All releases build with the one Xcode the workflow selects, which
+must therefore still build the oldest listed release. It does not change your checkout or require
 a running simulator. The temporary source and build directories are removed
 after the build, including on failure. GitHub authentication tokens are not
 passed to the Xcode builds.
