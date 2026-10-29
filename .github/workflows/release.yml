@@ -11,6 +11,8 @@ on:
 jobs:
   build-and-release:
     runs-on: macos-15
+    outputs:
+      is_prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
 
     steps:
       - name: Checkout repository
@@ -140,8 +142,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish.
   publish-docs:
     needs: build-and-release
+    if: needs.build-and-release.outputs.is_prerelease == 'false'
     permissions:
       contents: read
       pages: write

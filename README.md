@@ -58,7 +58,7 @@ The selector stays available when navigating between DocC pages.
 The release workflow puts each stable release first in
 [docs/versions.json](docs/versions.json), in the same commit that updates
 `Package.swift`, and then rebuilds and deploys the site with that release as
-the default. Pre-releases are not added. To document another release or change
+the default. Pre-releases are not added and do not rebuild the site. To document another release or change
 the default, edit the list and keep the default first. Documentation changes
 on `main` and manual workflow runs also rebuild and deploy the site. Pull
 requests build and validate the docs without deploying them.
