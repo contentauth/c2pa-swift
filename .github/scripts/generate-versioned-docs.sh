@@ -116,6 +116,22 @@ render_archive() {
     '</body></html>' > "$output/index.html"
 }
 
+verify_site() {
+  local site="$1" default="$2" tag
+  shift 2
+  for tag in "$@"; do
+    [[ -f "$site/versions/$tag/documentation/c2pa/index.html" ]] || {
+      fail "The site is missing the $tag landing page."; return 1;
+    }
+  done
+  grep -Fq "url=$BASE_PATH/documentation/c2pa/\"" "$site/index.html" || {
+    fail "The site root does not redirect to the default version."; return 1;
+  }
+  grep -Fq "data-version=\"$default\"" "$site/documentation/c2pa/index.html" || {
+    fail "The default documentation is not $default."; return 1;
+  }
+}
+
 build_site() (
   set -euo pipefail
   local versions=() tag versions_json workspace output stage default_archive=""
@@ -138,11 +154,10 @@ build_site() (
   render_archive "$default_archive" "$workspace/default" "${versions[0]}" "$versions_json" ""
   cp -R "$workspace/default/." "$workspace/site/"
   touch "$workspace/site/.nojekyll"
+  verify_site "$workspace/site" "${versions[0]}" "${versions[@]}"
   if [[ -e "$output" ]]; then mv "$output" "$workspace/previous"; fi
   mv "$workspace/site" "$output"
   printf 'Versioned DocC documentation generated at: %s\n' "$output"
 )
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  build_site
-fi
+build_site

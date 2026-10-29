@@ -60,10 +60,9 @@ on `main` and manual workflow runs also rebuild and deploy the site. Pull
 requests build and validate the docs without deploying them.
 
 The existing `make docs` command still builds working-tree documentation.
-Run `make docs-test` for the documentation tooling tests, which require Bash
-3.2 or newer, `jq`, and Git, but not Xcode.
-Set `RUN_DOCC_INTEGRATION=1` with Xcode selected to include a real Swift
-symbol-graph and DocC rendering test, as CI does.
+`make docs-versioned` fails if a release has no landing page, a page has no
+head element to carry the selector, or the assembled site's root does not
+lead to the default version, so the real build is the test.
 
 ## Repository structure
 

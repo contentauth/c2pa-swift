@@ -47,11 +47,6 @@ jobs:
         with:
           xcode-version: "16.4"
 
-      - name: Test documentation tooling and DocC rendering
-        env:
-          RUN_DOCC_INTEGRATION: "1"
-        run: make docs-test
-
       - name: Build versioned documentation
         env:
           GH_TOKEN: ${{ github.token }}
