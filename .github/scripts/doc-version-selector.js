@@ -2,7 +2,7 @@
   "use strict";
 
   const script = document.currentScript;
-  const versions = JSON.parse(script.dataset.versions);
+  const versions = script.dataset.versions.split(" ");
   const assets = new URL(".", script.src);
   const root = new URL(script.dataset.prefix ? "../../" : "./", assets);
   const label = document.createElement("label");

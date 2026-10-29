@@ -53,7 +53,7 @@ build_archive() {
 
 render_archive() {
   local archive="$1" output="$2" tag="$3" versions="$4" prefix="$5"
-  local hosting="$BASE_PATH" page additions escaped_tag escaped_versions escaped_prefix destination
+  local hosting="$BASE_PATH" page additions destination
   [[ -z "$prefix" ]] || hosting="$hosting/$prefix"
   mkdir -p "$output"
   xcrun docc process-archive transform-for-static-hosting "$archive" \
@@ -61,11 +61,8 @@ render_archive() {
   [[ -f "$output/documentation/c2pa/index.html" ]] || {
     fail "DocC did not generate a C2PA landing page for $tag."; return 1;
   }
-  escaped_tag="$(printf '%s' "$tag" | jq -Rr '@html')"
-  escaped_versions="$(printf '%s' "$versions" | jq -Rr '@html')"
-  escaped_prefix="$(printf '%s' "$prefix" | jq -Rr '@html')"
   additions="<link rel=\"stylesheet\" href=\"$hosting/doc-version-selector.css\">
-<script defer src=\"$hosting/doc-version-selector.js\" data-version=\"$escaped_tag\" data-versions=\"$escaped_versions\" data-prefix=\"$escaped_prefix\"></script>"
+<script defer src=\"$hosting/doc-version-selector.js\" data-version=\"$tag\" data-versions=\"$versions\" data-prefix=\"$prefix\"></script>"
   find "$output" -type f -name '*.html' -print0 > "$output.pages"
   while IFS= read -r -d '' page; do
     DOC_VERSION_ADDITIONS="$additions" awk '
@@ -110,14 +107,13 @@ verify_site() {
 
 build_site() (
   set -euo pipefail
-  local versions=() tag versions_json workspace output stage default_archive=""
+  local versions=() tag workspace output stage default_archive=""
   mkdir -p "$ROOT/.build"
   output="$ROOT/docs-output"
   workspace="$(mktemp -d "$ROOT/.build/versioned-docs-XXXXXX")"
   trap 'status=$?; if [[ -d "$workspace/previous" && ! -e "$output" ]]; then mv "$workspace/previous" "$output" || status=1; fi; rm -rf -- "$workspace"; exit "$status"' EXIT
   load_versions "$ROOT/docs/versions.json" > "$workspace/versions"
   while IFS= read -r tag; do versions+=("$tag"); done < "$workspace/versions"
-  versions_json="$(jq -c '.versions' "$ROOT/docs/versions.json")"
   for tag in "${versions[@]}"; do verify_release "$tag"; done
   for tag in "${versions[@]}"; do
     stage="$workspace/$tag"
@@ -125,9 +121,9 @@ build_site() (
     export_release "$ROOT" "$tag" "$stage"
     build_archive "$stage"
     [[ "$tag" != "${versions[0]}" ]] || default_archive="$BUILT_ARCHIVE"
-    render_archive "$BUILT_ARCHIVE" "$workspace/site/versions/$tag" "$tag" "$versions_json" "versions/$tag"
+    render_archive "$BUILT_ARCHIVE" "$workspace/site/versions/$tag" "$tag" "${versions[*]}" "versions/$tag"
   done
-  render_archive "$default_archive" "$workspace/default" "${versions[0]}" "$versions_json" ""
+  render_archive "$default_archive" "$workspace/default" "${versions[0]}" "${versions[*]}" ""
   cp -R "$workspace/default/." "$workspace/site/"
   touch "$workspace/site/.nojekyll"
   verify_site "$workspace/site" "${versions[0]}" "${versions[@]}"
