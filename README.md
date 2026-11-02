@@ -91,7 +91,7 @@ c2pa-swift/
 
 ### Runtime
 
-- iOS 16.0+ / macOS 14.0+
+- iOS 15.0+ / macOS 14.0+
 
 ### Development
 
@@ -104,9 +104,9 @@ c2pa-swift/
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| iOS 16.0+ | Supported | Full support including Secure Enclave signing |
+| iOS 15.0+ | Supported | Full support including Secure Enclave signing |
 | macOS 14.0+ | Supported | Full support; Secure Enclave on Apple Silicon only |
-| Mac Catalyst 16.0+ | Supported | iOS-style API surface; Secure Enclave on Apple Silicon only |
+| Mac Catalyst 15.0+ | Supported | iOS-style API surface; Secure Enclave on Apple Silicon only |
 
 ## Quick start
 

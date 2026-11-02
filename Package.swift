@@ -15,8 +15,8 @@ import PackageDescription
 let package = Package(
     name: "C2PA",
     platforms: [
-        .iOS(.v16),
-        .macCatalyst(.v16),
+        .iOS(.v15),
+        .macCatalyst(.v15),
         .macOS(.v14)
     ],
     products: [
