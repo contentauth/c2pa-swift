@@ -113,7 +113,7 @@ jobs:
 
             ## Supported Platforms
 
-            - iOS 16.0+
+            - iOS 15.0+
             - macOS 14.0+
 
             ## Swift Package Manager Integration
