@@ -21,52 +21,7 @@ For information on contributing to the project, see [Project contributions](http
 
 The [API documentation](https://contentauth.github.io/c2pa-swift/) is generated
 with DocC from selected published releases. Use the version selector in the
-navigation bar to switch releases. The first tag in [docs/versions.json](docs/versions.json) is the default
-at the existing `/c2pa-swift/documentation/c2pa/` URL. Each release is also
-available at `/c2pa-swift/versions/<tag>/documentation/c2pa/`.
-
-To build the versioned site locally, install Xcode 16.4 with its iOS SDK,
-Bash 3.2 or newer, `jq`, Git, and the [GitHub CLI](https://cli.github.com/). Authenticate
-using `gh auth login` or `GH_TOKEN`, and fetch the selected release tags:
-
-```sh
-git fetch --tags
-make docs-versioned
-```
-
-If your active developer directory points to Command Line Tools rather than
-Xcode, select Xcode for this command without changing the system configuration:
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer make docs-versioned
-```
-
-The builder verifies each published release, exports its exact tag into an
-isolated temporary directory, and runs that release's own `make docs` for a
-generic iOS Simulator destination, so each release builds with the recipe it
-shipped with. All releases build with the one Xcode the workflow selects, which
-must therefore still build the oldest listed release. It does not change your checkout or require
-a running simulator. The temporary source and build directories are removed
-after the build, including on failure. GitHub authentication tokens are not
-passed to the Xcode builds.
-
-The output is `docs-output/`, with the default at `index.html` and releases
-under `versions/<tag>/`. DocC's routing uses the `/c2pa-swift` hosting base path,
-so preview it over HTTP at that path rather than opening HTML with `file://`.
-The selector stays available when navigating between DocC pages.
-
-The release workflow puts each stable release first in
-[docs/versions.json](docs/versions.json), in the same commit that updates
-`Package.swift`, and then rebuilds and deploys the site with that release as
-the default. Pre-releases are not added and do not rebuild the site. To document another release or change
-the default, edit the list and keep the default first. Documentation changes
-on `main` and manual workflow runs also rebuild and deploy the site. Pull
-requests build and validate the docs without deploying them.
-
-The existing `make docs` command still builds working-tree documentation.
-`make docs-versioned` fails if a release has no landing page, a page has no
-head element to carry the selector, or the assembled site's root does not
-lead to the default version, so the real build is the test.
+navigation bar to switch releases. For information on building the docs, see [Contributing to the project](https://github.com/contentauth/c2pa-swift/blob/main/docs/project-contributions.md).
 
 ## Repository structure
 
