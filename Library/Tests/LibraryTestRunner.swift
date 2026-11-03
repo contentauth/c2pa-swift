@@ -169,18 +169,8 @@ final class BuilderTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testDataHashedPlaceholder() throws {
-        let result = tests.testDataHashedPlaceholder()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testFormatEmbeddable() throws {
-        let result = tests.testFormatEmbeddable()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testSignDataHashedEmbeddable() throws {
-        let result = tests.testSignDataHashedEmbeddable()
+    func testComposeManifest() throws {
+        let result = tests.testComposeManifest()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -321,13 +311,13 @@ final class SigningTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testSignerFromSettingsTOML() throws {
-        let result = tests.testSignerFromSettingsTOML()
+    func testContextSignerSettingsTOML() throws {
+        let result = tests.testContextSignerSettingsTOML()
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testSignerFromSettingsJSON() throws {
-        let result = tests.testSignerFromSettingsJSON()
+    func testContextSignerSettingsJSON() throws {
+        let result = tests.testContextSignerSettingsJSON()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -826,18 +816,18 @@ final class SignerExtendedTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testLoadSettingsJSON() throws {
-        let result = tests.testLoadSettingsJSON()
+    func testContextSettingsJSON() throws {
+        let result = tests.testContextSettingsJSON()
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testLoadSettingsTOML() throws {
-        let result = tests.testLoadSettingsTOML()
+    func testContextSettingsTOML() throws {
+        let result = tests.testContextSettingsTOML()
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testLoadSettingsInvalidJSON() throws {
-        let result = tests.testLoadSettingsInvalidJSON()
+    func testContextSettingsInvalidJSON() throws {
+        let result = tests.testContextSettingsInvalidJSON()
         XCTAssertTrue(result.passed, result.message)
     }
 
