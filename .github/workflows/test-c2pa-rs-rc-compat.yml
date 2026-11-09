@@ -1,0 +1,49 @@
+name: Test c2pa-rs RC compatibility
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    if: github.event.pull_request.head.ref == 'test/c2pa-rs-main-compat'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      C2PA_VERSION: v0.92.0-rc.1
+      SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Resolve c2pa-rs RC archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tag="c2pa-rc-${C2PA_VERSION}"
+          gh api "repos/contentauth/c2pa-rs/releases/tags/${release_tag}" \
+            > "$RUNNER_TEMP/c2pa-release.json"
+          .github/scripts/check-c2pa-assets.sh "$C2PA_VERSION" \
+            < "$RUNNER_TEMP/c2pa-release.json"
+
+          # shellcheck source=.github/scripts/c2pa-apple-targets.sh
+          . .github/scripts/c2pa-apple-targets.sh
+          C2PA_ARCHIVE_DIR="${RUNNER_TEMP}/c2pa-archives"
+          mkdir -p "$C2PA_ARCHIVE_DIR"
+          for target in $C2PA_APPLE_TARGETS; do
+            archive="c2pa-${C2PA_VERSION}-${target}.zip"
+            curl --fail --location --silent --show-error \
+              "https://github.com/contentauth/c2pa-rs/releases/download/${release_tag}/${archive}" \
+              --output "${C2PA_ARCHIVE_DIR}/${archive}"
+          done
+
+      - name: Run library tests
+        run: make test-library DESTINATION="$SIMULATOR_DESTINATION" C2PA_ARCHIVE_DIR="${RUNNER_TEMP}/c2pa-archives"
