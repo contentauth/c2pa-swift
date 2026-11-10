@@ -17,6 +17,12 @@ C2PA Swift offers:
 
 For information on contributing to the project, see [Project contributions](https://github.com/contentauth/c2pa-swift/tree/main/docs/project-contributions.md).
 
+## API documentation
+
+The [API documentation](https://contentauth.github.io/c2pa-swift/) is generated
+with DocC from selected published releases. Use the version selector in the
+navigation bar to switch releases. For information on building the docs, see [Contributing to the project](https://github.com/contentauth/c2pa-swift/blob/main/docs/project-contributions.md).
+
 ## Repository structure
 
 ```

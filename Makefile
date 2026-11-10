@@ -456,9 +456,15 @@ docs:
 	@echo "To view the documentation, open:"
 	@echo ".build/DerivedData/Build/Products/Debug-iphonesimulator/C2PA.doccarchive"
 
+.PHONY: docs-versioned
+
+docs-versioned:
+	bash .github/scripts/generate-versioned-docs.sh
+
 # Help target
 help:
 	@echo "Available targets:"
+	@echo "  make docs-versioned - Build versioned DocC documentation from published releases"
 	@echo "  make              - Build the library (default)"
 	@echo "  make lint         - Run SwiftLint on the codebase"
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"

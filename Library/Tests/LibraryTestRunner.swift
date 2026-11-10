@@ -74,6 +74,98 @@ final class StreamTests: XCTestCase {
     }
 }
 
+// MARK: - Stream Error Propagation Tests
+
+// Signs into an in-memory destination whose write and flush go through the same
+// adapters as the file-backed streams, so a failing operation must fail the signing.
+final class StreamErrorPropagationTests: XCTestCase {
+    private struct InjectedFailure: Error {}
+
+    private final class MemoryFile {
+        var data = Data()
+        var position = 0
+
+        func read(_ buffer: UnsafeMutableRawPointer, _ count: Int) -> Int {
+            let available = max(0, min(count, data.count - position))
+            if available > 0 {
+                data.withUnsafeBytes { bytes in
+                    buffer.copyMemory(from: bytes.baseAddress!.advanced(by: position), byteCount: available)
+                }
+                position += available
+            }
+            return available
+        }
+
+        func seek(_ offset: Int, from base: Int) -> Int {
+            position = max(0, base + offset)
+            return position
+        }
+
+        func write(_ bytes: Data) {
+            let end = position + bytes.count
+            if end > data.count {
+                data.append(Data(count: end - data.count))
+            }
+            data.replaceSubrange(position..<end, with: bytes)
+            position = end
+        }
+    }
+
+    private func sign(
+        into destination: MemoryFile,
+        write: @escaping (Data) throws -> Void,
+        synchronize: @escaping () throws -> Void
+    ) throws {
+        let imageData = try XCTUnwrap(TestUtilities.loadPexelsTestImage())
+        let source = try Stream(data: imageData)
+        let stream = try Stream(
+            read: destination.read,
+            seek: { offset, origin in
+                switch origin.rawValue {
+                case 0:  // Start
+                    return destination.seek(offset, from: 0)
+                case 1:  // Current
+                    return destination.seek(offset, from: destination.position)
+                case 2:  // End
+                    return destination.seek(offset, from: destination.data.count)
+                default:
+                    return -1
+                }
+            },
+            write: Stream.writer(write),
+            flush: Stream.flusher(synchronize)
+        )
+
+        let manifestJSON = TestUtilities.createTestManifestJSON(claimGenerator: "stream_error_test/1.0")
+        let builder = try Builder(manifestJSON: manifestJSON)
+        let signer = try TestUtilities.createTestSigner()
+
+        _ = try builder.sign(format: "image/jpeg", source: source, destination: stream, signer: signer)
+    }
+
+    func testSignSucceedsWhenDestinationSucceeds() throws {
+        let destination = MemoryFile()
+
+        try sign(into: destination, write: destination.write, synchronize: {})
+
+        XCTAssertFalse(destination.data.isEmpty)
+    }
+
+    func testSignFailsWhenDestinationWriteFails() throws {
+        let destination = MemoryFile()
+
+        XCTAssertThrowsError(try sign(into: destination, write: { _ in throw InjectedFailure() }, synchronize: {}))
+    }
+
+    func testSignFailsWhenDestinationFlushFails() throws {
+        let destination = MemoryFile()
+
+        XCTAssertThrowsError(
+            try sign(into: destination, write: destination.write, synchronize: { throw InjectedFailure() }))
+        XCTAssertFalse(destination.data.isEmpty, "Writes should succeed so that the failure comes from the flush")
+    }
+}
+
 // MARK: - Builder Tests
 
 final class BuilderTests: XCTestCase {
@@ -858,6 +950,11 @@ final class SignerExtendedTests: XCTestCase {
 
     func testSignerCallbackErrorPropagation() throws {
         let result = tests.testSignerCallbackErrorPropagation()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testFailedSignerCreationReleasesCallback() throws {
+        let result = tests.testFailedSignerCreationReleasesCallback()
         XCTAssertTrue(result.passed, result.message)
     }
 
