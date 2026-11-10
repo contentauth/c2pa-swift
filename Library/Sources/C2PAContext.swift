@@ -237,18 +237,27 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
 /// let builder = try Builder(context: context, manifestJSON: manifestJSON)
 /// ```
 ///
+/// ## Sharing Across Threads
+///
+/// A context is `Sendable`. That is what makes ``cancel()`` useful: the thread running an
+/// operation is blocked inside the native call, so the request to stop has to come from
+/// another one.
+///
 /// - SeeAlso: ``C2PASettings``, ``Builder``
-public final class C2PAContext {
+public final class C2PAContext: @unchecked Sendable {
+    // Unchecked because the compiler cannot see through the pointer. The conformance holds
+    // because `ptr` is assigned once, the native context is documented as immutable and
+    // shareable once built, and `c2pa_context_cancel` is documented as thread-safe.
     let ptr: UnsafeMutablePointer<C2paContext>
 
     /// Boxes holding the callback closures the native context may invoke.
     ///
     /// The C layer keeps only unretained pointers to these, so they must outlive the
     /// context. Holding them here ties their lifetime to it exactly.
-    private let callbackBoxes: [AnyObject]
+    private let callbackBoxes: [any Sendable]
 
     /// Internal initializer that adopts an already-built native context.
-    init(ptr: UnsafeMutablePointer<C2paContext>, callbackBoxes: [AnyObject] = []) {
+    init(ptr: UnsafeMutablePointer<C2paContext>, callbackBoxes: [any Sendable] = []) {
         self.ptr = ptr
         self.callbackBoxes = callbackBoxes
     }
@@ -291,7 +300,7 @@ public final class C2PAContext {
         }
 
         let builder = try guardNotNull(c2pa_context_builder_new())
-        var boxes: [AnyObject] = []
+        var boxes: [any Sendable] = []
         do {
             if let settings {
                 _ = try guardNonNegative(

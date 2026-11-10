@@ -59,9 +59,9 @@ concurrency:
 
 env:
   # Must match a simulator present on the pinned Xcode. The Makefile default
-  # (iPhone 18 Pro) does not exist on Xcode 16.4, and every other workflow
+  # (iPhone 18 Pro) does not exist on Xcode 26.6, and every other workflow
   # here overrides it the same way.
-  SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5"
+  SIMULATOR_DESTINATION: "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5"
 
 jobs:
   resolve:
@@ -213,7 +213,7 @@ jobs:
     name: Build against ${{ needs.resolve.outputs.version }}
     needs: resolve
     if: needs.resolve.outputs.proceed == 'true'
-    runs-on: macos-15
+    runs-on: macos-26
     # Seven cold release builds of c2pa-c-ffi plus the simulator tests do not
     # fit in 60 minutes.
     timeout-minutes: ${{ inputs.mode == 'main' && 120 || 60 }}
@@ -227,7 +227,7 @@ jobs:
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.4"
+          xcode-version: "26.6"
 
       - name: Build the Tracking Branch
         env:
