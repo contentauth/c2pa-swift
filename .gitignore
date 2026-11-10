@@ -52,7 +52,7 @@ SigningServer/Sources/C2PAC/*
 SigningServer/Sources/C2PA/*
 
 # Test and coverage artifacts
-TestResults.xcresult/
+*.xcresult/
 coverage.json
 coverage.lcov
 coverage.txt

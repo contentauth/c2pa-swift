@@ -519,6 +519,46 @@ public final class SignerExtendedTests: TestImplementation {
         }
     }
 
+    public func testFailedSignerCreationReleasesCallback() -> TestResult {
+        final class Captured {}
+
+        weak var weakCaptured: Captured?
+        var creationError: Error?
+
+        do {
+            let captured = Captured()
+            weakCaptured = captured
+
+            // The C API rejects strings over 1 MiB, so creation fails after the
+            // callback has been retained for the signer.
+            let oversizedChain = String(repeating: "A", count: 1_048_577)
+
+            do {
+                _ = try Signer(algorithm: .es256, certificateChainPEM: oversizedChain) { data in
+                    withExtendedLifetime(captured) { data }
+                }
+            } catch {
+                creationError = error
+            }
+        }
+
+        guard let creationError else {
+            return .failure(
+                "Failed Signer Releases Callback",
+                "Signer creation should have failed for an oversized certificate chain")
+        }
+
+        guard weakCaptured == nil else {
+            return .failure(
+                "Failed Signer Releases Callback",
+                "Callback was retained after signer creation failed")
+        }
+
+        return .success(
+            "Failed Signer Releases Callback",
+            "[PASS] Creation failed (\(creationError)) and the callback was released")
+    }
+
     public func testCawgIdentitySigner() -> TestResult {
         let tempDir = FileManager.default.temporaryDirectory
         let sourceURL = tempDir.appendingPathComponent("cawg_src_\(UUID().uuidString).jpg")
@@ -667,6 +707,7 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testSignerFromSignerInfoWithTSA())
         results.append(testSignerCallbackInvocation())
         results.append(testSignerCallbackErrorPropagation())
+        results.append(testFailedSignerCreationReleasesCallback())
         results.append(testCawgIdentitySigner())
         results.append(testCawgIdentitySignerReserveSize())
         results.append(testConsumedSignerIsGuarded())

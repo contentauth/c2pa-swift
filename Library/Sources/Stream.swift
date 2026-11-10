@@ -299,17 +299,8 @@ public extension Stream {
         let flusher: Flusher?
 
         if write {
-            writer = { buffer, count in
-                try? fhBox.fh.write(contentsOf: Data(bytes: buffer, count: count))
-
-                return count
-            }
-
-            flusher = {
-                try? fhBox.fh.synchronize()
-
-                return 0
-            }
+            writer = Stream.writer { try fhBox.fh.write(contentsOf: $0) }
+            flusher = Stream.flusher { try fhBox.fh.synchronize() }
         } else {
             writer = nil
             flusher = nil
@@ -362,6 +353,34 @@ public extension Stream {
             f: flusher,
             fileHandleBox: fhBox
         ))
+    }
+}
+
+extension Stream {
+    /// Adapts a throwing write to the ``Writer`` contract: the byte count on success, -1 on failure.
+    static func writer(_ write: @escaping (Data) throws -> Void) -> Writer {
+        return { buffer, count in
+            do {
+                try write(Data(bytes: buffer, count: count))
+
+                return count
+            } catch {
+                return -1
+            }
+        }
+    }
+
+    /// Adapts a throwing synchronize to the ``Flusher`` contract: 0 on success, -1 on failure.
+    static func flusher(_ synchronize: @escaping () throws -> Void) -> Flusher {
+        return {
+            do {
+                try synchronize()
+
+                return 0
+            } catch {
+                return -1
+            }
+        }
     }
 }
 
