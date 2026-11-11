@@ -246,6 +246,21 @@ final class BuilderTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
+    func testComposeManifest() throws {
+        let result = tests.testComposeManifest()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testComposeManifestRejectsUnsupportedFormat() throws {
+        let result = tests.testComposeManifestRejectsUnsupportedFormat()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testDataHashFlowWithCallbackSigner() throws {
+        let result = tests.testDataHashFlowWithCallbackSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
     func testBuilderContextManifestDefinition() throws {
         let result = tests.testBuilderContextManifestDefinition()
         XCTAssertTrue(result.passed, result.message)
@@ -258,21 +273,6 @@ final class BuilderTests: XCTestCase {
 
     func testAddIngredientFromArchive() throws {
         let result = tests.testAddIngredientFromArchive()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testDataHashedPlaceholder() throws {
-        let result = tests.testDataHashedPlaceholder()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testFormatEmbeddable() throws {
-        let result = tests.testFormatEmbeddable()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testSignDataHashedEmbeddable() throws {
-        let result = tests.testSignDataHashedEmbeddable()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -413,13 +413,13 @@ final class SigningTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testSignerFromSettingsTOML() throws {
-        let result = tests.testSignerFromSettingsTOML()
+    func testSettingsSignerSignsThroughContextTOML() throws {
+        let result = tests.testSettingsSignerSignsThroughContextTOML()
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testSignerFromSettingsJSON() throws {
-        let result = tests.testSignerFromSettingsJSON()
+    func testSettingsSignerSignsThroughContextJSON() throws {
+        let result = tests.testSettingsSignerSignsThroughContextJSON()
         XCTAssertTrue(result.passed, result.message)
     }
 
@@ -918,21 +918,6 @@ final class SignerExtendedTests: XCTestCase {
         XCTAssertTrue(result.passed, result.message)
     }
 
-    func testLoadSettingsJSON() throws {
-        let result = tests.testLoadSettingsJSON()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testLoadSettingsTOML() throws {
-        let result = tests.testLoadSettingsTOML()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
-    func testLoadSettingsInvalidJSON() throws {
-        let result = tests.testLoadSettingsInvalidJSON()
-        XCTAssertTrue(result.passed, result.message)
-    }
-
     func testSignerFromSignerInfo() throws {
         let result = tests.testSignerFromSignerInfo()
         XCTAssertTrue(result.passed, result.message)
@@ -1167,6 +1152,61 @@ final class ContextTests: XCTestCase {
 
     func testHTTPResolverEmptyResponseBody() throws {
         let result = tests.testHTTPResolverEmptyResponseBody()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextSignerSigns() throws {
+        let result = tests.testContextSignerSigns()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextWithoutSignerSignFails() throws {
+        let result = tests.testContextWithoutSignerSignFails()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testProgrammaticSignerOverridesSettingsSigner() throws {
+        let result = tests.testProgrammaticSignerOverridesSettingsSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testProgrammaticSignerReplacesSettingsCawgSigner() throws {
+        let result = tests.testProgrammaticSignerReplacesSettingsCawgSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testCawgIdentitySignerSignsThroughContext() throws {
+        let result = tests.testCawgIdentitySignerSignsThroughContext()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testSignerReuseAfterContextThrows() throws {
+        let result = tests.testSignerReuseAfterContextThrows()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextRejectsConsumedSigner() throws {
+        let result = tests.testContextRejectsConsumedSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextReleasesCallbackSigner() throws {
+        let result = tests.testContextReleasesCallbackSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextSignerOutlivesCallerScope() throws {
+        let result = tests.testContextSignerOutlivesCallerScope()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testConcurrentSignsShareContextSigner() throws {
+        let result = tests.testConcurrentSignsShareContextSigner()
+        XCTAssertTrue(result.passed, result.message)
+    }
+
+    func testContextSignerCallbackErrorPropagates() throws {
+        let result = tests.testContextSignerCallbackErrorPropagates()
         XCTAssertTrue(result.passed, result.message)
     }
 

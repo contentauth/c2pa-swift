@@ -19,7 +19,7 @@ import Security
 ///
 /// This structure defines the parameters needed to create or access a private key
 /// in the Secure Enclave, providing hardware-backed security for signing operations.
-public struct SecureEnclaveSignerConfig {
+public struct SecureEnclaveSignerConfig: Sendable {
     /// The keychain tag identifying the Secure Enclave key.
     public let keyTag: String
 

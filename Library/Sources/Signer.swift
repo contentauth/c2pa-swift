@@ -65,20 +65,11 @@ import Foundation
 /// - SeeAlso: ``KeychainSigner``, ``SecureEnclaveSigner``, ``WebServiceSigner``
 public final class Signer {
 
-    /// The possible formats a settings string can have.
-    public enum SettingsFormat: String {
-
-        /// Settings are provided as a JSON formatted string
-        case json
-
-        /// Settings are provided as a TOML formatted string
-        case toml
-    }
-
     let ptr: UnsafeMutablePointer<C2paSigner>
     private var retainedContext: Unmanaged<AnyObject>?
-    /// When true, the native signer was consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
-    /// and must not be freed by this instance.
+    /// When true, the native signer was consumed by a ``C2PAContext`` or by
+    /// ``withCawgIdentity(_:identity:referencedAssertions:roles:)`` and must not be freed by
+    /// this instance.
     private var consumed = false
     /// Input signers consumed into this combined signer; held so their callback contexts
     /// outlive this signer and are released only after this signer is freed.
@@ -87,16 +78,28 @@ public final class Signer {
     /// The native signer, validated as still owned by this instance.
     ///
     /// Use this instead of ``ptr`` wherever the pointer is handed to the C layer, so a
-    /// signer consumed by ``withCawgIdentity(_:identity:referencedAssertions:roles:)``
-    /// fails with a clear error rather than dereferencing memory it no longer owns.
+    /// consumed signer fails with a clear error rather than dereferencing memory it no
+    /// longer owns.
     ///
     /// - Throws: ``C2PAError`` if this signer was consumed.
     func livePtr() throws -> UnsafeMutablePointer<C2paSigner> {
         guard !consumed else {
             throw C2PAError.api(
-                "Signer was consumed by withCawgIdentity(_:identity:referencedAssertions:roles:) and cannot be reused")
+                "Signer was consumed by another owner (a C2PAContext or withCawgIdentity) and cannot be reused")
         }
         return ptr
+    }
+
+    /// Hands the native signer to a new owner and marks this instance consumed.
+    ///
+    /// Call this immediately before the native call that takes ownership. From then on
+    /// this instance no longer frees the signer, and every later use throws.
+    ///
+    /// - Throws: ``C2PAError`` if this signer was already consumed.
+    func consume() throws -> UnsafeMutablePointer<C2paSigner> {
+        let live = try livePtr()
+        consumed = true
+        return live
     }
 
     private init(ptr: UnsafeMutablePointer<C2paSigner>) {
@@ -158,144 +161,6 @@ public final class Signer {
             tsa: info.tsa)
     }
 
-    /// Creates a signer from JSON settings configuration.
-    ///
-    /// This initializer creates a signer from a JSON settings object that can
-    /// include certificate paths, private keys, algorithm selection, and other
-    /// configuration options. This is useful for loading signer configuration
-    /// from external sources, configuration files, or for CAWG (Coalition for
-    /// Content Provenance and Authenticity Working Group) signers.
-    ///
-    /// - Parameter settingsJSON: A JSON string containing signer configuration.
-    ///
-    /// - Throws: ``C2PAError`` if the settings are invalid or the signer cannot be created.
-    ///
-    /// ## Settings Format
-    ///
-    /// The JSON should follow the C2PA settings format. For a CAWG signer:
-    ///
-    /// ```json
-    /// {
-    ///     "version": 1,
-    ///     "cawg_x509_signer": {
-    ///         "local": {
-    ///             "alg": "es256",
-    ///             "sign_cert": "-----BEGIN CERTIFICATE-----\n...",
-    ///             "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-    ///             "tsa_url": "http://timestamp.digicert.com"
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// let settingsJSON = """
-    /// {
-    ///     "version": 1,
-    ///     "cawg_x509_signer": {
-    ///         "local": {
-    ///             "alg": "es256",
-    ///             "sign_cert": "\(certPEM)",
-    ///             "private_key": "\(keyPEM)",
-    ///             "tsa_url": "http://timestamp.digicert.com"
-    ///         }
-    ///     }
-    /// }
-    /// """
-    ///
-    /// let signer = try Signer(settingsJSON: settingsJSON)
-    /// ```
-    ///
-    /// - Note: This method requires C2PAC framework v0.71.0 or later.
-    ///
-    /// - SeeAlso: ``init(certsPEM:privateKeyPEM:algorithm:tsa:)``
-    public convenience init(settingsJSON: String) throws {
-        try self.init(settings: settingsJSON, format: .json)
-    }
-
-    /// Creates a signer from TOML settings configuration.
-    ///
-    /// This initializer creates a signer from a TOML settings string. TOML format
-    /// supports additional features like CAWG (Creator Assertions Working Group)
-    /// X.509 signers that generate identity assertions.
-    ///
-    /// - Parameter settingsTOML: A TOML string containing signer configuration.
-    ///
-    /// - Throws: ``C2PAError`` if the settings are invalid or the signer cannot be created.
-    ///
-    /// ## CAWG Signer Example
-    ///
-    /// ```swift
-    /// let settingsTOML = """
-    /// version = 1
-    ///
-    /// [cawg_x509_signer.local]
-    /// alg = "es256"
-    /// sign_cert = \"\"\"-----BEGIN CERTIFICATE-----
-    /// ...certificate chain...
-    /// -----END CERTIFICATE-----
-    /// \"\"\"
-    /// private_key = \"\"\"-----BEGIN PRIVATE KEY-----
-    /// ...private key...
-    /// -----END PRIVATE KEY-----
-    /// \"\"\"
-    /// tsa_url = "http://timestamp.digicert.com"
-    /// referenced_assertions = ["cawg.training-mining"]
-    /// """
-    ///
-    /// let signer = try Signer(settingsTOML: settingsTOML)
-    /// ```
-    ///
-    /// - Note: This method requires C2PAC framework v0.72.0 or later.
-    ///
-    /// - SeeAlso: ``init(settingsJSON:)``
-    public convenience init(settingsTOML: String) throws {
-        try self.init(settings: settingsTOML, format: .toml)
-    }
-
-    /// Creates a signer from settings configuration in the specified format.
-    ///
-    /// - Parameters:
-    ///   - settings: The settings string in the specified format.
-    ///   - format: The format of the settings string ("json" or "toml").
-    ///
-    /// - Throws: ``C2PAError`` if the settings are invalid or the signer cannot be created.
-    private convenience init(settings: String, format: SettingsFormat) throws {
-        let raw = try settings.withCString { settingsPtr in
-            try format.rawValue.withCString { formatPtr in
-                let result = c2pa_load_settings(settingsPtr, formatPtr)
-                guard result == 0 else {
-                    throw C2PAError.api(lastC2PAError())
-                }
-                return try guardNotNull(c2pa_signer_from_settings())
-            }
-        }
-        self.init(ptr: raw)
-    }
-
-    /// Loads global C2PA settings without creating a signer.
-    ///
-    /// This method loads settings that will be used by subsequent signing operations.
-    /// Use this to load CAWG identity assertion settings separately from the main signer.
-    ///
-    /// - Parameters:
-    ///   - settings: The settings string in the specified format.
-    ///   - format: The format of the settings string ("json" or "toml").
-    ///
-    /// - Throws: ``C2PAError`` if the settings are invalid.
-    public static func loadSettings(_ settings: String, format: SettingsFormat) throws {
-        try settings.withCString { settingsPtr in
-            try format.rawValue.withCString { formatPtr in
-                let result = c2pa_load_settings(settingsPtr, formatPtr)
-                guard result == 0 else {
-                    throw C2PAError.api(lastC2PAError())
-                }
-            }
-        }
-    }
-
     /// Creates a signer with a custom signing closure.
     ///
     /// This initializer enables advanced signing scenarios where the private key
@@ -307,7 +172,9 @@ public final class Signer {
     /// - Keychain-stored keys
     ///
     /// The signing closure receives the data to be signed and must return the
-    /// signature bytes. The closure is called during the signing operation.
+    /// signature bytes. The closure is called during the signing operation, on
+    /// whichever thread runs it. When the signer is owned by a ``C2PAContext`` that
+    /// several threads share, it can be called concurrently.
     ///
     /// - Parameters:
     ///   - algorithm: The signing algorithm that matches your closure's implementation.
@@ -340,12 +207,12 @@ public final class Signer {
         algorithm: SigningAlgorithm,
         certificateChainPEM: String,
         tsa: URL? = nil,
-        sign: @escaping (Data) throws -> Data
+        sign: @escaping @Sendable (Data) throws -> Data
     ) throws {
         // keep closure alive
         final class Box {
-            let fn: (Data) throws -> Data
-            init(_ fn: @escaping (Data) throws -> Data) { self.fn = fn }
+            let fn: @Sendable (Data) throws -> Data
+            init(_ fn: @escaping @Sendable (Data) throws -> Data) { self.fn = fn }
         }
         let box = Box(sign)
         let ref = Unmanaged.passRetained(box as AnyObject)  // Retain Box as AnyObject

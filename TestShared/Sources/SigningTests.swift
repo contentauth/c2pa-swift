@@ -41,12 +41,10 @@ public final class SigningTests: TestImplementation {
     public func testSignerWithCallback() -> TestResult {
         // This test verifies that the callback mechanism works
         // It's not testing actual signing validity
-        var callbackInvoked = false
-        var dataToSign: Data?
+        let signedSizes = CallbackRecorder<Int>()
 
-        let signCallback: (Data) throws -> Data = { data in
-            callbackInvoked = true
-            dataToSign = data
+        let signCallback: @Sendable (Data) throws -> Data = { data in
+            signedSizes.record(data.count)
 
             // Return dummy signature data - this won't be cryptographically valid
             // but that's OK since we're just testing the callback mechanism
@@ -91,10 +89,10 @@ public final class SigningTests: TestImplementation {
             )
 
             // If we get here without errors, callback should have been invoked
-            if callbackInvoked && dataToSign != nil {
+            if let byteCount = signedSizes.recorded.first {
                 return .success(
                     "Signer With Callback",
-                    "[PASS] Callback mechanism works - invoked with \(dataToSign?.count ?? 0) bytes")
+                    "[PASS] Callback mechanism works - invoked with \(byteCount) bytes")
             } else {
                 return .failure(
                     "Signer With Callback",
@@ -102,10 +100,10 @@ public final class SigningTests: TestImplementation {
             }
         } catch {
             // Check if the callback was at least invoked before failure
-            if callbackInvoked && dataToSign != nil {
+            if let byteCount = signedSizes.recorded.first {
                 return .success(
                     "Signer With Callback",
-                    "[PASS] Callback mechanism works - invoked with \(dataToSign?.count ?? 0) bytes (signing failed as expected with dummy signature)"
+                    "[PASS] Callback mechanism works - invoked with \(byteCount) bytes (signing failed as expected with dummy signature)"
                 )
             } else {
                 // The callback wasn't invoked at all - this is a real failure
@@ -340,177 +338,58 @@ public final class SigningTests: TestImplementation {
         }
     }
 
-    public func testSignerFromSettingsTOML() -> TestResult {
-        let bundle = Bundle(for: type(of: self))
-
-        guard let tomlURL = bundle.url(forResource: "test_settings_with_cawg_signing", withExtension: "toml") else {
-            return .failure("Signer From Settings (TOML)", "Fixture not found: test_settings_with_cawg_signing.toml")
-        }
-
-        do {
-            let settingsTOML = try String(contentsOf: tomlURL, encoding: .utf8)
-            let signer = try Signer(settingsTOML: settingsTOML)
-
-            // Load test image
-            guard let sourceData = TestUtilities.loadPexelsTestImage() else {
-                return .failure("Signer From Settings (TOML)", "Could not load test image")
-            }
-
-            // Create manifest
-            let manifestJSON = TestUtilities.createTestManifestJSON()
-            let builder = try Builder(manifestJSON: manifestJSON)
-
-            let tempDir = FileManager.default.temporaryDirectory
-            let sourceFile = tempDir.appendingPathComponent("settings_toml_source_\(UUID().uuidString).jpg")
-            let destFile = tempDir.appendingPathComponent("settings_toml_dest_\(UUID().uuidString).jpg")
-
-            defer {
-                try? FileManager.default.removeItem(at: sourceFile)
-                try? FileManager.default.removeItem(at: destFile)
-            }
-
-            try sourceData.write(to: sourceFile)
-
-            let sourceStream = try Stream(readFrom: sourceFile)
-            let destStream = try Stream(writeTo: destFile)
-
-            _ = try builder.sign(
-                format: "image/jpeg",
-                source: sourceStream,
-                destination: destStream,
-                signer: signer
-            )
-
-            // Verify the signed image contains a valid manifest
-            let signedData = try Data(contentsOf: destFile)
-            let signedStream = try Stream(data: signedData)
-            let reader = try Reader(format: "image/jpeg", stream: signedStream)
-            let manifestJSONResult = try reader.json()
-
-            guard let manifestData = manifestJSONResult.data(using: .utf8),
-                (try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any]) != nil
-            else {
-                return .failure("Signer From Settings (TOML)", "Could not parse manifest JSON")
-            }
-
-            // Successfully signed and verified manifest
-            // Check for CAWG-related content in the parsed manifest structure
-            guard let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-                  let manifests = manifest["manifests"] as? [String: Any],
-                  let firstManifest = manifests.values.first as? [String: Any],
-                  let assertions = firstManifest["assertions"] as? [[String: Any]] else {
-                return .success(
-                    "Signer From Settings (TOML)",
-                    "[PASS] Signed image with CAWG settings - manifest valid but no assertions to inspect")
-            }
-
-            // Check assertion labels for CAWG content
-            let assertionLabels = assertions.compactMap { $0["label"] as? String }
-            let hasCawgAssertion = assertionLabels.contains { label in
-                label.contains("cawg") || label.contains("training") || label.contains("mining")
-            }
-
-            if hasCawgAssertion {
-                return .success(
-                    "Signer From Settings (TOML)",
-                    "[PASS] Signed image with CAWG signer - found CAWG assertions: \(assertionLabels)")
-            } else {
-                return .success(
-                    "Signer From Settings (TOML)",
-                    "[PASS] Signed image with CAWG settings - assertions: \(assertionLabels)")
-            }
-
-        } catch let error as C2PAError {
-            return .failure("Signer From Settings (TOML)", "Failed - \(error)")
-        } catch {
-            return .failure("Signer From Settings (TOML)", "Failed - \(error)")
-        }
+    public func testSettingsSignerSignsThroughContextTOML() -> TestResult {
+        settingsSignerSignsThroughContext(
+            name: "Settings Signer Through Context (TOML)", fixtureExtension: "toml"
+        ) { try C2PASettings(toml: $0) }
     }
 
-    public func testSignerFromSettingsJSON() -> TestResult {
-        let bundle = Bundle(for: type(of: self))
+    public func testSettingsSignerSignsThroughContextJSON() -> TestResult {
+        settingsSignerSignsThroughContext(
+            name: "Settings Signer Through Context (JSON)", fixtureExtension: "json"
+        ) { try C2PASettings(json: $0) }
+    }
 
-        guard let jsonURL = bundle.url(forResource: "test_settings_with_cawg_signing", withExtension: "json") else {
-            return .failure("Signer From Settings (JSON)", "Fixture not found: test_settings_with_cawg_signing.json")
+    /// Signs through a context built from the CAWG settings fixture in the given format.
+    ///
+    /// The fixture configures a signer and a CAWG X.509 signer on top of it, so the signed
+    /// manifest has to carry a `cawg.identity` assertion as well as a valid signature.
+    private func settingsSignerSignsThroughContext(
+        name: String,
+        fixtureExtension: String,
+        makeSettings: (String) throws -> C2PASettings
+    ) -> TestResult {
+        let fixture = "test_settings_with_cawg_signing"
+        let bundle = Bundle(for: type(of: self))
+        guard let fixtureURL = bundle.url(forResource: fixture, withExtension: fixtureExtension) else {
+            return .failure(name, "Fixture not found: \(fixture).\(fixtureExtension)")
         }
+        guard let sourceData = TestUtilities.loadPexelsTestImage() else {
+            return .failure(name, "Could not load test image")
+        }
+        let destFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "settings_\(fixtureExtension)_dest_\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: destFile) }
 
         do {
-            let settingsJSON = try String(contentsOf: jsonURL, encoding: .utf8)
-            let signer = try Signer(settingsJSON: settingsJSON)
-
-            // Load test image
-            guard let sourceData = TestUtilities.loadPexelsTestImage() else {
-                return .failure("Signer From Settings (JSON)", "Could not load test image")
-            }
-
-            // Create manifest
-            let manifestJSON = TestUtilities.createTestManifestJSON()
-            let builder = try Builder(manifestJSON: manifestJSON)
-
-            let tempDir = FileManager.default.temporaryDirectory
-            let sourceFile = tempDir.appendingPathComponent("settings_json_source_\(UUID().uuidString).jpg")
-            let destFile = tempDir.appendingPathComponent("settings_json_dest_\(UUID().uuidString).jpg")
-
-            defer {
-                try? FileManager.default.removeItem(at: sourceFile)
-                try? FileManager.default.removeItem(at: destFile)
-            }
-
-            try sourceData.write(to: sourceFile)
-
-            let sourceStream = try Stream(readFrom: sourceFile)
-            let destStream = try Stream(writeTo: destFile)
-
-            _ = try builder.sign(
+            let settings = try makeSettings(try String(contentsOf: fixtureURL, encoding: .utf8))
+            let builder = try Builder(
+                context: try C2PAContext(settings: settings),
+                manifestJSON: TestUtilities.createTestManifestJSON())
+            try builder.sign(
                 format: "image/jpeg",
-                source: sourceStream,
-                destination: destStream,
-                signer: signer
-            )
+                source: try Stream(data: sourceData),
+                destination: try Stream(writeTo: destFile))
 
-            // Verify the signed image contains a valid manifest
-            let signedData = try Data(contentsOf: destFile)
-            let signedStream = try Stream(data: signedData)
-            let reader = try Reader(format: "image/jpeg", stream: signedStream)
-            let manifestJSONResult = try reader.json()
-
-            guard let manifestData = manifestJSONResult.data(using: .utf8),
-                (try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any]) != nil
-            else {
-                return .failure("Signer From Settings (JSON)", "Could not parse manifest JSON")
+            let labels = try TestUtilities.activeManifestAssertionLabels(
+                inJPEG: try Data(contentsOf: destFile))
+            guard TestUtilities.containsCawgIdentity(labels) else {
+                return .failure(
+                    name, "Signed, but the settings' CAWG signer added no cawg.identity: \(labels)")
             }
-
-            // Successfully signed and verified manifest
-            // Check for CAWG-related content in the parsed manifest structure
-            guard let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-                  let manifests = manifest["manifests"] as? [String: Any],
-                  let firstManifest = manifests.values.first as? [String: Any],
-                  let assertions = firstManifest["assertions"] as? [[String: Any]] else {
-                return .success(
-                    "Signer From Settings (JSON)",
-                    "[PASS] Signed image with CAWG settings - manifest valid but no assertions to inspect")
-            }
-
-            // Check assertion labels for CAWG content
-            let assertionLabels = assertions.compactMap { $0["label"] as? String }
-            let hasCawgAssertion = assertionLabels.contains { label in
-                label.contains("cawg") || label.contains("training") || label.contains("mining")
-            }
-
-            if hasCawgAssertion {
-                return .success(
-                    "Signer From Settings (JSON)",
-                    "[PASS] Signed image with CAWG signer - found CAWG assertions: \(assertionLabels)")
-            } else {
-                return .success(
-                    "Signer From Settings (JSON)",
-                    "[PASS] Signed image with CAWG settings - assertions: \(assertionLabels)")
-            }
-
-        } catch let error as C2PAError {
-            return .failure("Signer From Settings (JSON)", "Failed - \(error)")
+            return .success(name, "[PASS] Signed with the settings signer and its CAWG identity: \(labels)")
         } catch {
-            return .failure("Signer From Settings (JSON)", "Failed - \(error)")
+            return .failure(name, "Failed - \(error)")
         }
     }
 
@@ -731,8 +610,8 @@ public final class SigningTests: TestImplementation {
             testSignerWithTimestampAuthority(),
             await testWebServiceSignerCreation(),
             testSignerWithActualSigning(),
-            testSignerFromSettingsTOML(),
-            testSignerFromSettingsJSON(),
+            testSettingsSignerSignsThroughContextTOML(),
+            testSettingsSignerSignsThroughContextJSON(),
             // Edge case tests
             testDoubleSigningImage(),
             testZeroByteFile(),

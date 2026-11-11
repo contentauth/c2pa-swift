@@ -9,10 +9,67 @@
 // each license.
 
 import C2PA
+import CryptoKit
 import Foundation
 
 // Helper class for bundle resolution
 private class TestUtilitiesClassReference {}
+
+/// Collects values delivered from native callbacks.
+///
+/// Callbacks fire synchronously on the thread running the operation, but a plain array
+/// would still be shared mutable state as far as the compiler is concerned.
+final class CallbackRecorder<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Value] = []
+
+    func record(_ value: Value) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(value)
+    }
+
+    var recorded: [Value] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
+/// Test-only escape hatch: a second reference to a signer that the compiler's region
+/// analysis cannot see, so the runtime consumption guards stay exercisable once the signer
+/// itself has been passed as `sending`.
+///
+/// Unchecked because `Signer` is not `Sendable`. A test keeps its alias on the thread that
+/// created it.
+final class SignerAlias: @unchecked Sendable {
+    let signer: Signer
+
+    init(_ signer: Signer) {
+        self.signer = signer
+    }
+}
+
+/// A broken test setup, such as a missing fixture.
+///
+/// Deliberately not a ``C2PAError``, so a test that expects the library to throw one
+/// cannot mistake a setup failure for the error it is looking for.
+struct TestSetupError: Error, CustomStringConvertible {
+    let description: String
+
+    init(_ description: String) {
+        self.description = description
+    }
+
+    /// Runs a setup step, turning whatever it throws into a ``TestSetupError``.
+    static func wrapping<T>(_ failure: String, _ step: () throws -> T) throws -> T {
+        do {
+            return try step()
+        } catch {
+            throw TestSetupError("\(failure): \(error)")
+        }
+    }
+}
 
 // Shared test utilities and helper methods
 public enum TestUtilities {
@@ -83,6 +140,23 @@ public enum TestUtilities {
         """
     }
 
+    // A settings signer section: a local ES256 signer on the test credentials
+    public static var localSignerSection: [String: Any] {
+        ["local": ["alg": "es256", "sign_cert": testCertsPEM, "private_key": testPrivateKeyPEM]]
+    }
+
+    // Settings JSON that configures a local signer on the test credentials. Entries in
+    // `sections` are added as further top-level sections.
+    public static func localSignerSettingsJSON(merging sections: [String: Any] = [:]) throws -> String {
+        var settings: [String: Any] = ["version": 1, "signer": localSignerSection]
+        settings.merge(sections) { _, added in added }
+        let data = try JSONSerialization.data(withJSONObject: settings)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw TestSetupError("Could not encode the settings as UTF-8")
+        }
+        return json
+    }
+
     // Creates a test signer with valid credentials for actual signing
     public static func createTestSigner() throws -> Signer {
         return try Signer(
@@ -91,6 +165,18 @@ public enum TestUtilities {
             algorithm: .es256,
             tsa: nil
         )
+    }
+
+    // Creates a callback signer that produces valid ES256 signatures with the test key,
+    // calling onSign with the bytes to be signed first
+    public static func createTestCallbackSigner(
+        onSign: @escaping @Sendable (Data) -> Void = { _ in }
+    ) throws -> Signer {
+        let key = try P256.Signing.PrivateKey(pemRepresentation: testPrivateKeyPEM)
+        return try Signer(algorithm: .es256, certificateChainPEM: testCertsPEM) { data in
+            onSign(data)
+            return try key.signature(for: data).derRepresentation
+        }
     }
 
     // Creates a test signer with invalid credentials for testing failures
@@ -169,5 +255,25 @@ public enum TestUtilities {
             ]
         }
         """
+    }
+
+    // Reads a signed JPEG back and returns the assertion labels of its active manifest
+    public static func activeManifestAssertionLabels(inJPEG asset: Data) throws -> [String] {
+        let json = try Reader(format: "image/jpeg", stream: try Stream(data: asset)).json()
+        guard let store = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let active = store["active_manifest"] as? String,
+              let manifests = store["manifests"] as? [String: Any],
+              let manifest = manifests[active] as? [String: Any],
+              let assertions = manifest["assertions"] as? [[String: Any]]
+        else {
+            throw TestSetupError("No assertions in the active manifest: \(json.prefix(300))")
+        }
+        return assertions.compactMap { $0["label"] as? String }
+    }
+
+    // Whether assertion labels include a CAWG identity assertion. A manifest's second one
+    // is labelled cawg.identity__1, and so on.
+    public static func containsCawgIdentity(_ labels: [String]) -> Bool {
+        labels.contains { $0 == "cawg.identity" || $0.hasPrefix("cawg.identity__") }
     }
 }
