@@ -75,6 +75,11 @@ public struct C2PASettingsDefinition: Codable, Sendable, Equatable {
     public var signer: SignerSettings?
 
     /// CAWG X.509 signer configuration.
+    ///
+    /// Applies only on top of ``signer``: when a context signs with the signer these
+    /// settings configure, it also adds a `cawg.identity` assertion. A ``Signer`` passed to
+    /// ``C2PAContext/init(settings:signer:onProgress:httpResolver:)`` is used as it is, so
+    /// this section is ignored for it.
     public var cawgX509Signer: SignerSettings?
 
     public init(

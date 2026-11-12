@@ -12,14 +12,7 @@ import C2PA
 import Foundation
 import Security
 
-/// Test-only escape hatch: aliases signers outside the compiler's region analysis so the
-/// runtime consumption guards stay exercisable once withCawgIdentity's parameters are `sending`.
-private enum SmuggledSigner {
-    nonisolated(unsafe) static var claim: Signer?
-    nonisolated(unsafe) static var identity: Signer?
-}
-
-// Extended Signer tests - covering reserveSize, exportPublicKeyPEM, loadSettings, etc.
+// Extended Signer tests - covering reserveSize, exportPublicKeyPEM, callbacks, etc.
 public final class SignerExtendedTests: TestImplementation {
 
     public init() {}
@@ -235,80 +228,6 @@ public final class SignerExtendedTests: TestImplementation {
         }
     }
 
-    // MARK: - loadSettings Tests
-
-    public func testLoadSettingsJSON() -> TestResult {
-        var testSteps: [String] = []
-
-        // Create a valid JSON settings string
-        let settingsJSON = """
-        {
-            "version": 1,
-            "claim_generator_info": {
-                "name": "test_app",
-                "version": "1.0"
-            }
-        }
-        """
-
-        do {
-            try Signer.loadSettings(settingsJSON, format: .json)
-            testSteps.append("Loaded JSON settings successfully")
-
-            return .success(
-                "loadSettings JSON",
-                testSteps.joined(separator: "\n"))
-
-        } catch {
-            // loadSettings might fail for minimal settings, but we're testing the code path
-            testSteps.append("loadSettings result: \(error)")
-            return .success(
-                "loadSettings JSON",
-                testSteps.joined(separator: "\n"))
-        }
-    }
-
-    public func testLoadSettingsTOML() -> TestResult {
-        var testSteps: [String] = []
-
-        let settingsTOML = """
-        version = 1
-
-        [claim_generator_info]
-        name = "test_app"
-        version = "1.0"
-        """
-
-        do {
-            try Signer.loadSettings(settingsTOML, format: .toml)
-            testSteps.append("Loaded TOML settings successfully")
-
-            return .success(
-                "loadSettings TOML",
-                testSteps.joined(separator: "\n"))
-
-        } catch {
-            testSteps.append("loadSettings result: \(error)")
-            return .success(
-                "loadSettings TOML",
-                testSteps.joined(separator: "\n"))
-        }
-    }
-
-    public func testLoadSettingsInvalidJSON() -> TestResult {
-        do {
-            try Signer.loadSettings("{ invalid json }", format: .json)
-            // v0.76.1+ accepts invalid JSON without error
-            return .success(
-                "loadSettings Invalid JSON",
-                "loadSettings accepted invalid JSON without error (expected in v0.76.1+)")
-        } catch {
-            return .success(
-                "loadSettings Invalid JSON",
-                "Caught error for invalid JSON: \(error)")
-        }
-    }
-
     // MARK: - Signer with SignerInfo Tests
 
     public func testSignerFromSignerInfo() -> TestResult {
@@ -376,8 +295,7 @@ public final class SignerExtendedTests: TestImplementation {
     public func testSignerCallbackInvocation() -> TestResult {
         // This test verifies the callback signer actually invokes the callback during signing
         var testSteps: [String] = []
-        var callbackInvoked = false
-        var receivedDataSize = 0
+        let receivedSizes = CallbackRecorder<Int>()
 
         do {
             let signer = try Signer(
@@ -385,8 +303,7 @@ public final class SignerExtendedTests: TestImplementation {
                 certificateChainPEM: TestUtilities.testCertsPEM,
                 tsa: nil
             ) { data in
-                callbackInvoked = true
-                receivedDataSize = data.count
+                receivedSizes.record(data.count)
                 // Return dummy signature data - signing will fail but callback invocation is tested
                 return Data(repeating: 0x30, count: 72)
             }
@@ -429,7 +346,7 @@ public final class SignerExtendedTests: TestImplementation {
             }
 
             // Verify the callback was actually invoked
-            guard callbackInvoked else {
+            guard let receivedDataSize = receivedSizes.recorded.first else {
                 return .failure(
                     "Signer Callback Invocation",
                     "Callback was never invoked during signing")
@@ -458,15 +375,15 @@ public final class SignerExtendedTests: TestImplementation {
     public func testSignerCallbackErrorPropagation() -> TestResult {
         // This test verifies that errors thrown by the callback are properly propagated
         var testSteps: [String] = []
-        var callbackInvoked = false
+        let calls = CallbackRecorder<Int>()
 
         do {
             let signer = try Signer(
                 algorithm: .es256,
                 certificateChainPEM: TestUtilities.testCertsPEM,
                 tsa: nil
-            ) { _ in
-                callbackInvoked = true
+            ) { data in
+                calls.record(data.count)
                 throw C2PAError.api("Callback intentionally failed")
             }
             testSteps.append("Created signer with failing callback")
@@ -505,7 +422,7 @@ public final class SignerExtendedTests: TestImplementation {
 
         } catch {
             // Verify the callback was invoked before the error
-            guard callbackInvoked else {
+            guard !calls.recorded.isEmpty else {
                 return .failure(
                     "Signer Callback Error Propagation",
                     "Callback was never invoked - error may be from setup: \(error)")
@@ -520,7 +437,7 @@ public final class SignerExtendedTests: TestImplementation {
     }
 
     public func testFailedSignerCreationReleasesCallback() -> TestResult {
-        final class Captured {}
+        final class Captured: Sendable {}
 
         weak var weakCaptured: Captured?
         var creationError: Error?
@@ -617,30 +534,24 @@ public final class SignerExtendedTests: TestImplementation {
     }
 
     public func testConsumedSignerIsGuarded() -> TestResult {
+        let claimAlias: SignerAlias
+        let identityAlias: SignerAlias
         do {
             let claimSigner = try TestUtilities.createTestSigner()
             let identitySigner = try TestUtilities.createTestSigner()
-            SmuggledSigner.claim = claimSigner
-            SmuggledSigner.identity = identitySigner
+            claimAlias = SignerAlias(claimSigner)
+            identityAlias = SignerAlias(identitySigner)
             _ = try Signer.withCawgIdentity(claimSigner, identity: identitySigner)
         } catch let error as C2PAError {
-            SmuggledSigner.claim = nil
-            SmuggledSigner.identity = nil
             return .success("Consumed Signer Guarded", "[WARN] setup unavailable (error: \(error))")
         } catch {
-            SmuggledSigner.claim = nil
-            SmuggledSigner.identity = nil
             return .failure("Consumed Signer Guarded", "Setup error: \(error)")
-        }
-        defer {
-            SmuggledSigner.claim = nil
-            SmuggledSigner.identity = nil
         }
 
         // Both inputs are now consumed; reusing either through an alias must throw rather
         // than dereference a pointer the combined signer owns.
         do {
-            _ = try SmuggledSigner.claim!.reserveSize()
+            _ = try claimAlias.signer.reserveSize()
             return .failure("Consumed Signer Guarded", "reserveSize on a consumed signer should have thrown")
         } catch is C2PAError {
         } catch {
@@ -648,7 +559,7 @@ public final class SignerExtendedTests: TestImplementation {
         }
 
         do {
-            _ = try Signer.withCawgIdentity(SmuggledSigner.claim!, identity: SmuggledSigner.identity!)
+            _ = try Signer.withCawgIdentity(claimAlias.signer, identity: identityAlias.signer)
             return .failure("Consumed Signer Guarded", "re-combining consumed signers should have thrown")
         } catch is C2PAError {
         } catch {
@@ -665,11 +576,10 @@ public final class SignerExtendedTests: TestImplementation {
         } catch {
             return .failure("CAWG Same Instance Rejected", "Setup error: \(error)")
         }
-        SmuggledSigner.claim = signer
-        defer { SmuggledSigner.claim = nil }
+        let alias = SignerAlias(signer)
 
         do {
-            _ = try Signer.withCawgIdentity(signer, identity: SmuggledSigner.claim!)
+            _ = try Signer.withCawgIdentity(signer, identity: alias.signer)
             return .failure(
                 "CAWG Same Instance Rejected", "combining a signer with itself should have thrown")
         } catch let error as C2PAError {
@@ -681,7 +591,7 @@ public final class SignerExtendedTests: TestImplementation {
         }
 
         do {
-            _ = try SmuggledSigner.claim!.reserveSize()
+            _ = try alias.signer.reserveSize()
         } catch {
             return .failure(
                 "CAWG Same Instance Rejected",
@@ -700,9 +610,6 @@ public final class SignerExtendedTests: TestImplementation {
         results.append(testReserveSizeWithCallback())
         results.append(testExportPublicKeyPEM())
         results.append(testExportPublicKeyPEMNonExistentKey())
-        results.append(testLoadSettingsJSON())
-        results.append(testLoadSettingsTOML())
-        results.append(testLoadSettingsInvalidJSON())
         results.append(testSignerFromSignerInfo())
         results.append(testSignerFromSignerInfoWithTSA())
         results.append(testSignerCallbackInvocation())

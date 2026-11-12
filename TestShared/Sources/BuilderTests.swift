@@ -509,12 +509,6 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
-    private func jsonQuoted(_ s: String) -> String {
-        let arr = (try? JSONSerialization.data(withJSONObject: [s]))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-        return String(arr.dropFirst().dropLast())  // strip the [ ] to get the quoted string
-    }
-
     public func testNeedsPlaceholder() -> TestResult {
         do {
             let context = try C2PAContext()
@@ -538,8 +532,7 @@ public final class BuilderTests: TestImplementation {
             }
             try imageData.write(to: assetURL)
 
-            let settingsJSON = "{\"version\":1,\"signer\":{\"local\":{\"alg\":\"es256\",\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
-            let settings = try C2PASettings(json: settingsJSON)
+            let settings = try C2PASettings(json: try TestUtilities.localSignerSettingsJSON())
             let context = try C2PAContext(settings: settings)
             let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
 
@@ -553,10 +546,100 @@ public final class BuilderTests: TestImplementation {
                 return .failure("Data Hash Signing", "Empty embeddable manifest")
             }
             return .success("Data Hash Signing", "[PASS] two-pass embeddable manifest: \(manifest.count) bytes")
-        } catch let error as C2PAError {
-            return .success("Data Hash Signing", "[WARN] data-hash path callable (error: \(error))")
         } catch {
             return .failure("Data Hash Signing", "Error: \(error)")
+        }
+    }
+
+    public func testComposeManifest() -> TestResult {
+        let name = "Compose Manifest"
+        let tempDir = FileManager.default.temporaryDirectory
+        let destURL = tempDir.appendingPathComponent("compose_\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: destURL) }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure(name, "Could not load test image")
+            }
+            let signing = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
+            signing.setNoEmbed()
+            let raw = try signing.sign(
+                format: "image/jpeg",
+                source: try Stream(data: imageData),
+                destination: try Stream(writeTo: destURL),
+                signer: try TestUtilities.createTestSigner())
+
+            let composed = try signing.composeManifest(raw, format: "image/jpeg")
+            guard composed.count > raw.count else {
+                return .failure(
+                    name, "composed \(composed.count) bytes, expected JPEG framing on \(raw.count)")
+            }
+
+            // Composing needs no builder, only a context. On a default context the static
+            // form has the same handlers to consult, so it must frame the bytes identically.
+            let standalone = try Builder.composeManifest(raw, format: "image/jpeg")
+            guard standalone == composed else {
+                return .failure(
+                    name, "composed \(standalone.count) bytes without a builder, \(composed.count) with one")
+            }
+            let withContext = try Builder.composeManifest(
+                raw, format: "image/jpeg", context: try C2PAContext())
+            guard withContext == composed else {
+                return .failure(
+                    name, "composed \(withContext.count) bytes on a context passed in, \(composed.count) on a builder")
+            }
+            return .success(name, "[PASS] framed \(raw.count) manifest bytes as \(composed.count)")
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testComposeManifestRejectsUnsupportedFormat() -> TestResult {
+        let name = "Compose Manifest Rejects Unsupported Format"
+        do {
+            let context = try C2PAContext()
+            // Composing frames the bytes for the format without validating them, so the
+            // failure it can report is a format with no asset handler.
+            do {
+                _ = try Builder.composeManifest(
+                    Data([0x00, 0x01, 0x02, 0x03]),
+                    format: "application/x-unsupported",
+                    context: context)
+                return .failure(name, "composed a manifest for a format with no handler")
+            } catch is C2PAError {
+                return .success(name, "[PASS] a format with no handler was rejected")
+            }
+        } catch {
+            return .failure(name, "Error: \(error)")
+        }
+    }
+
+    public func testDataHashFlowWithCallbackSigner() -> TestResult {
+        let name = "Data Hash Flow With Callback Signer"
+        let assetURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "dh_cb_\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+        do {
+            guard let imageData = TestUtilities.loadPexelsTestImage() else {
+                return .failure(name, "Could not load test image")
+            }
+            try imageData.write(to: assetURL)
+
+            let context = try C2PAContext(signer: try TestUtilities.createTestCallbackSigner())
+            let builder = try Builder(
+                context: context, manifestJSON: TestUtilities.createTestManifestJSON())
+
+            let placeholder = try builder.placeholder(format: "image/jpeg")
+            try builder.setDataHashExclusions([(start: 0, length: UInt64(placeholder.count))])
+            try builder.updateHashFromStream(format: "image/jpeg", stream: try Stream(readFrom: assetURL))
+            let signed = try builder.signEmbeddable(format: "image/jpeg")
+
+            guard signed.count == placeholder.count else {
+                return .failure(
+                    name, "signed \(signed.count) bytes into a \(placeholder.count)-byte placeholder")
+            }
+            return .success(name, "[PASS] callback signer filled the \(signed.count)-byte placeholder")
+        } catch {
+            return .failure(name, "Error: \(error)")
         }
     }
 
@@ -617,59 +700,6 @@ public final class BuilderTests: TestImplementation {
         }
     }
 
-    public func testDataHashedPlaceholder() -> TestResult {
-        do {
-            let context = try C2PAContext()
-            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
-            _ = try builder.dataHashedPlaceholder(reservedSize: 16 * 1024, format: "image/jpeg")
-            return .success("Data Hashed Placeholder", "[PASS] dataHashedPlaceholder returned bytes")
-        } catch let error as C2PAError {
-            return .success("Data Hashed Placeholder", "[WARN] dataHashedPlaceholder callable (error: \(error))")
-        } catch {
-            return .failure("Data Hashed Placeholder", "Error: \(error)")
-        }
-    }
-
-    public func testFormatEmbeddable() -> TestResult {
-        do {
-            let context = try C2PAContext()
-            let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
-            let raw = (try? builder.placeholder(format: "image/jpeg")) ?? Data([0x00, 0x01, 0x02, 0x03])
-            _ = try Builder.formatEmbeddable(raw, format: "image/jpeg")
-            return .success("Format Embeddable", "[PASS] formatEmbeddable wrapped manifest bytes")
-        } catch let error as C2PAError {
-            return .success("Format Embeddable", "[WARN] formatEmbeddable callable (error: \(error))")
-        } catch {
-            return .failure("Format Embeddable", "Error: \(error)")
-        }
-    }
-
-    public func testSignDataHashedEmbeddable() -> TestResult {
-        let tempDir = FileManager.default.temporaryDirectory
-        let assetURL = tempDir.appendingPathComponent("sdh_\(UUID().uuidString).jpg")
-        defer { try? FileManager.default.removeItem(at: assetURL) }
-        do {
-            guard let imageData = TestUtilities.loadPexelsTestImage() else {
-                return .failure("Sign Data Hashed Embeddable", "Could not load test image")
-            }
-            try imageData.write(to: assetURL)
-
-            let builder = try Builder(manifestJSON: TestUtilities.createTestManifestJSON())
-            let signer = try TestUtilities.createTestSigner()
-            let dataHash = "{\"alg\":\"sha256\",\"name\":\"jumbf manifest\",\"exclusions\":[]}"
-            _ = try builder.signDataHashedEmbeddable(
-                signer: signer,
-                dataHash: dataHash,
-                format: "image/jpeg",
-                asset: try Stream(readFrom: assetURL))
-            return .success("Sign Data Hashed Embeddable", "[PASS] signDataHashedEmbeddable returned bytes")
-        } catch let error as C2PAError {
-            return .success("Sign Data Hashed Embeddable", "[WARN] signDataHashedEmbeddable callable (error: \(error))")
-        } catch {
-            return .failure("Sign Data Hashed Embeddable", "Error: \(error)")
-        }
-    }
-
     public func testBuilderFromArchiveRoundtrip() -> TestResult {
         let archiveURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             "barch_\(UUID().uuidString).c2pa")
@@ -709,10 +739,8 @@ public final class BuilderTests: TestImplementation {
             guard let videoData = TestUtilities.loadVideoTestData() else {
                 return .failure("BMFF Merkle Hashing", "Could not load video1.mp4")
             }
-            let settingsJSON = "{\"version\":1,\"builder\":{\"created_assertion_labels\":[\"c2pa.actions\"]},"
-                + "\"signer\":{\"local\":{\"alg\":\"es256\","
-                + "\"sign_cert\":\(jsonQuoted(TestUtilities.testCertsPEM)),"
-                + "\"private_key\":\(jsonQuoted(TestUtilities.testPrivateKeyPEM))}}}"
+            let settingsJSON = try TestUtilities.localSignerSettingsJSON(
+                merging: ["builder": ["created_assertion_labels": ["c2pa.actions"]]])
             let context = try C2PAContext(settings: try C2PASettings(json: settingsJSON))
             let builder = try Builder(context: context, manifestJSON: TestUtilities.createTestManifestJSON())
 
@@ -778,12 +806,12 @@ public final class BuilderTests: TestImplementation {
             testIngredientArchiveRoundtrip(),
             testNeedsPlaceholder(),
             testDataHashSigningWorkflow(),
+            testComposeManifest(),
+            testComposeManifestRejectsUnsupportedFormat(),
+            testDataHashFlowWithCallbackSigner(),
             testBuilderContextManifestDefinition(),
             testBuilderAddAction(),
             testAddIngredientFromArchive(),
-            testDataHashedPlaceholder(),
-            testFormatEmbeddable(),
-            testSignDataHashedEmbeddable(),
             testBuilderFromArchiveRoundtrip(),
             testBuilderHashType(),
             testBmffMerkleHashing(),
