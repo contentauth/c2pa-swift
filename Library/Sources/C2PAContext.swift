@@ -370,7 +370,7 @@ public final class C2PAContext: @unchecked Sendable {
             // that first check would leave a live signer with us, and it cannot fail for
             // the builder created above. So the signer is marked consumed before the call:
             // at worst it leaks, where freeing it could be a double free. Verified against
-            // c2pa-v0.91.7, and worth re-checking whenever C2PA_VERSION moves.
+            // c2pa-v0.92.0, and worth re-checking whenever C2PA_VERSION moves.
             if let signer {
                 _ = try guardNonNegative(
                     Int64(c2pa_context_builder_set_signer(builder, try signer.consume())))
