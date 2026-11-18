@@ -11,6 +11,9 @@
 import Vapor
 
 public func configure(_ app: Application) async throws {
+    // Loopback unless told otherwise; make signing-server-start-lan binds the
+    // Mac's LAN address so a phone test run can reach it.
+    app.http.server.configuration.hostname = Environment.get("SIGNING_SERVER_HOST") ?? "127.0.0.1"
     app.routes.defaultMaxBodySize = "50mb"
     app.middleware.use(ErrorMiddleware.default(environment: app.environment))
     app.certificateService = CertificateSigningService()

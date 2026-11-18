@@ -4,8 +4,8 @@
 included:
   - Library/Sources
   - ExampleApp/Sources
-  - TestApp/Sources
-  - TestShared/Sources
+  - Library/Tests
+  - Library/TestHost
   - SigningServer/Sources
 
 excluded:

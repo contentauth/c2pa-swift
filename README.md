@@ -32,11 +32,9 @@ c2pa-swift/
 │   │   └── C2PA/       # Main library implementation
 │   ├── Frameworks/     # Pre-built XCFramework
 │   │   └── C2PAC.xcframework/
-│   └── Tests/          # Unit tests
-│       └── C2PATests/  # Test implementations
-├── TestApp/            # iOS app for running tests with UI
+│   ├── Tests/          # Swift Testing suites (C2PATests) and their fixtures
+│   └── TestHost/       # Minimal app that hosts the tests on a device
 ├── ExampleApp/         # Sample iOS app for implementation reference
-├── TestShared/         # Shared test utilities and fixtures
 ├── SigningServer/      # Local test server for signing operations
 ├── C2PA.xcworkspace/   # Xcode workspace tying everything together
 └── Makefile           # Build automation (wraps xcodebuild/swift commands)
@@ -80,9 +78,28 @@ make test-library
 # Run library tests on macOS
 make test-library-macos
 
+# Run library tests on a connected iPhone (Secure Enclave and keychain suites run there)
+make test-device DEVICE_ID=<device id from `xcrun xctrace list devices`>
+
 # Generate test coverage
 make coverage
 ```
+
+The tests run inside `TestHost`, a minimal app in `Library.xcodeproj` that gives
+them a keychain entitlement. On a simulator or macOS the Secure Enclave suites
+are skipped with a stated reason; on a physical device they always run, and so
+do the keychain and signing-server suites.
+
+To run on a phone from Xcode instead of `make test-device`, start the signing
+server on the LAN first, then run the Library scheme's tests against the phone:
+
+```bash
+make device-setup              # writes this Mac's .local URL into Configurations/Local.xcconfig
+make signing-server-start-lan  # binds the server to this Mac's LAN address
+```
+
+The first run on a phone asks for local network access, and macOS may ask
+whether SigningServer may accept incoming connections; allow both.
 
 ### Building against a local c2pa-rs checkout
 
@@ -107,9 +124,6 @@ change. This is also how the `track/c2pa-rs-main` branch is built in CI.
 ### Running applications
 
 ```bash
-# Run the test app in iOS Simulator
-make run-test-app
-
 # Run the example app in iOS Simulator
 make run-example-app
 
@@ -253,10 +267,9 @@ The project includes a comprehensive Makefile with various targets:
 - `test` - Run all tests (alias for test-library)
 - `test-library` - Run library unit tests only (iOS)
 - `test-library-macos` - Run library unit tests on macOS
-- `tests` - Run all tests including UI tests
+- `test-device` - Run library tests on a connected device (`DEVICE_ID=<id>`)
 - `coverage` - Generate test coverage report
 - `workspace-build` - Build entire workspace
-- `run-test-app` - Run test app in simulator
 - `run-example-app` - Run example app in simulator
 - `signing-server-start` - Start signing server
 - `signing-server-stop` - Stop signing server

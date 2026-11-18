@@ -1,7 +1,7 @@
-.PHONY: all clean library test-shared test-app example-app publish tests coverage help \
-        run-test-app run-example-app signing-server-start signing-server-stop signing-server-status \
+.PHONY: all clean library example-app publish coverage help \
+        run-example-app signing-server-start signing-server-stop signing-server-status \
         tests-with-server workspace-build test-library test-library-macos lint signing-server-wait signing-server-verify \
-        test-summary coverage-lcov validate-version release-tests \
+        test-summary coverage-lcov validate-version test-device device-setup signing-server-start-lan \
         package-swift update-package-swift create-release-tag docs \
         use-dev-package use-release-package spm-build
 
@@ -12,6 +12,11 @@ SDK := iphoneos
 SIMULATOR_NAME ?= iPhone 18 Pro
 DESTINATION ?= platform=iOS Simulator,name=$(SIMULATOR_NAME)
 MACOS_DESTINATION ?= platform=macOS
+
+# Phone test runs reach the signing server on this Mac over the LAN.
+LAN_IP ?= $(shell ipconfig getifaddr en0 2>/dev/null)
+MAC_HOST ?= $(shell scutil --get LocalHostName 2>/dev/null).local
+SIGNING_SERVER_WAIT_URL ?= http://127.0.0.1:8080
 
 # Disable code signing for unit-test invocations so CI runners without
 # a Mac Development certificate can still build and run the test bundles.
@@ -87,23 +92,11 @@ library:
 
 
 # Build entire workspace
-workspace-build: library test-shared
+workspace-build: library
 	@echo "Building entire workspace..."
-	@xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration $(CONFIGURATION) -destination '$(DESTINATION)' build
+	@xcodebuild -workspace C2PA.xcworkspace -scheme Library -destination '$(DESTINATION)' $(TEST_CODE_SIGN_FLAGS) build-for-testing
 	@xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp -configuration $(CONFIGURATION) -destination '$(DESTINATION)' build
 	@echo "Workspace build completed."
-
-# Build TestShared framework
-test-shared: library
-	@echo "Building TestShared framework..."
-	@xcodebuild -workspace C2PA.xcworkspace -scheme TestShared -configuration $(CONFIGURATION) -destination '$(DESTINATION)' build
-	@echo "TestShared build completed."
-
-# Build TestApp
-test-app: test-shared
-	@echo "Building TestApp..."
-	@xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration $(CONFIGURATION) -destination '$(DESTINATION)' build
-	@echo "TestApp build completed."
 
 # Build ExampleApp
 example-app: library
@@ -118,6 +111,7 @@ test-library: library
 	@xcodebuild test \
 		-workspace C2PA.xcworkspace \
 		-scheme Library \
+		-testPlan C2PATests \
 		-destination '$(DESTINATION)' \
 		-resultBundlePath TestResults.xcresult \
 		-enableCodeCoverage YES \
@@ -134,24 +128,13 @@ test-library-macos:
 	@xcodebuild test \
 		-workspace C2PA.xcworkspace \
 		-scheme Library \
+		-testPlan C2PATests \
 		-destination '$(MACOS_DESTINATION)' \
 		-resultBundlePath TestResults.xcresult \
 		-enableCodeCoverage YES \
 		$(TEST_CODE_SIGN_FLAGS) \
 		$(C2PA_ARCHIVE_FLAGS)
 	@echo "macOS library tests completed."
-
-# Run all tests including unit and UI tests
-tests: test-app
-	@echo "Running all tests..."
-	@rm -rf TestResults.xcresult
-	@xcodebuild test \
-		-workspace C2PA.xcworkspace \
-		-scheme TestApp \
-		-destination '$(DESTINATION)' \
-		-resultBundlePath TestResults.xcresult \
-		-enableCodeCoverage YES \
-		$(TEST_CODE_SIGN_FLAGS)
 
 # Quick test run (alias for test-library)
 test: test-library
@@ -163,18 +146,40 @@ coverage: library
 	@xcodebuild test \
 		-workspace C2PA.xcworkspace \
 		-scheme Library \
+		-testPlan C2PATests \
 		-configuration Debug \
 		-enableCodeCoverage YES \
 		-destination '$(DESTINATION)' \
 		-resultBundlePath TestResults.xcresult
 	@echo "Coverage report generated."
 
-# Run test app
-run-test-app: test-app
-	@echo "Running test app..."
-	@xcrun simctl boot "$(SIMULATOR_NAME)" || true
-	@xcrun simctl install "$(SIMULATOR_NAME)" "$(shell xcodebuild -workspace C2PA.xcworkspace -scheme TestApp -configuration Debug -showBuildSettings | grep -m 1 'BUILT_PRODUCTS_DIR' | cut -d '=' -f 2 | xargs)/TestApp.app"
-	@xcrun simctl launch "$(SIMULATOR_NAME)" org.contentauth.TestApp
+# Run the library tests on a connected device, where the Secure Enclave,
+# keychain and signing-server suites always run. Signing stays on: the host app
+# needs its keychain entitlement. The signing server is started on the LAN for
+# the run and stopped afterwards. List devices with `xcrun xctrace list devices`.
+test-device: export TEST_RUNNER_C2PA_REQUIRE_SIGNING_SERVER = 1
+test-device:
+	@if [ -z "$(DEVICE_ID)" ]; then echo "DEVICE_ID is required (xcrun xctrace list devices)"; exit 1; fi
+	@$(MAKE) device-setup signing-server-start-lan
+	@$(MAKE) signing-server-wait SIGNING_SERVER_WAIT_URL=http://$(LAN_IP):8080
+	@rm -rf TestResults.xcresult
+	@status=0; xcodebuild test \
+		-workspace C2PA.xcworkspace \
+		-scheme Library \
+		-testPlan C2PATests \
+		-destination 'platform=iOS,id=$(DEVICE_ID)' \
+		-resultBundlePath TestResults.xcresult \
+		-allowProvisioningUpdates \
+		$(C2PA_ARCHIVE_FLAGS) || status=$$?; \
+	$(MAKE) signing-server-stop; exit $$status
+
+# Point device builds at this Mac's signing server. The URL lands in the
+# gitignored Configurations/Local.xcconfig, which TestHost's Info.plist reads;
+# xcconfig treats // as a comment, hence http:/$$()/.
+device-setup:
+	@if [ "$(MAC_HOST)" = ".local" ]; then echo "Could not read this Mac's LocalHostName (scutil)"; exit 1; fi
+	@printf 'SIGNING_SERVER_DEVICE_URL = http:/$$()/%s:8080\n' "$(MAC_HOST)" > Configurations/Local.xcconfig
+	@echo "Device runs will use http://$(MAC_HOST):8080"
 
 # Run example app
 run-example-app: example-app
@@ -238,19 +243,6 @@ validate-version:
 	fi
 	@echo "Version $(VERSION) is valid."
 
-# Run release tests
-release-tests:
-	@echo "Running release tests..."
-	@if [ -d "example" ]; then \
-		cd example && xcodebuild test \
-			-scheme C2PAExample \
-			-destination '$(DESTINATION)' \
-			| xcpretty --test --color || true; \
-	else \
-		echo "Example directory not found, running library tests instead"; \
-		$(MAKE) test-library; \
-	fi
-
 
 # Compute checksum for XCFramework
 compute-checksum:
@@ -299,8 +291,11 @@ update-package-swift:
 	fi
 
 # Tests with signing server
-tests-with-server: signing-server-start signing-server-wait test-library signing-server-stop
-	@echo "Tests with server completed."
+# The server is required here, so the test plan's reachability gate fails the
+# run instead of skipping the server suites when it is down.
+tests-with-server: export TEST_RUNNER_C2PA_REQUIRE_SIGNING_SERVER = 1
+tests-with-server: signing-server-start signing-server-wait
+	@status=0; $(MAKE) test-library || status=$$?; $(MAKE) signing-server-stop; exit $$status
 
 # Start the signing server (setup is handled by Xcode scheme)
 signing-server-start:
@@ -309,6 +304,14 @@ signing-server-start:
 	@cd SigningServer && SIGNING_SERVER_URL=http://127.0.0.1:8080 SIGNING_SERVER_TOKEN=test-bearer-token-12345 nohup .build/debug/SigningServer > ../signing-server.log 2>&1 &
 	@echo "Signing server started"
 	@echo "Server running at http://127.0.0.1:8080 with bearer token authentication"
+
+# Start the signing server on the LAN, for a phone test run
+signing-server-start-lan:
+	@if [ -z "$(LAN_IP)" ]; then echo "No LAN address on en0; pass LAN_IP=<address>"; exit 1; fi
+	@echo "Building and starting signing server on $(LAN_IP)..."
+	@xcodebuild -workspace C2PA.xcworkspace -scheme SigningServer -configuration Debug build
+	@cd SigningServer && SIGNING_SERVER_HOST=$(LAN_IP) SIGNING_SERVER_URL=http://$(MAC_HOST):8080 SIGNING_SERVER_TOKEN=test-bearer-token-12345 nohup .build/debug/SigningServer > ../signing-server.log 2>&1 &
+	@echo "Server running at http://$(MAC_HOST):8080 ($(LAN_IP)) with bearer token authentication"
 
 # Stop the signing server
 signing-server-stop:
@@ -328,7 +331,7 @@ signing-server-wait:
 	@max_attempts=30; \
 	attempt=0; \
 	while [ $$attempt -lt $$max_attempts ]; do \
-		if curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then \
+		if curl -s $(SIGNING_SERVER_WAIT_URL)/health > /dev/null 2>&1; then \
 			echo "Signing server is ready"; \
 			break; \
 		fi; \
@@ -362,7 +365,7 @@ test-summary:
 		echo "Test results available in TestResults.xcresult"; \
 	else \
 		echo "TestResults.xcresult not found"; \
-		echo "Run 'make test-library' or 'make tests' first to generate test results"; \
+		echo "Run 'make test-library' first to generate test results"; \
 	fi
 
 # Export coverage to LCOV format
@@ -433,8 +436,6 @@ clean-coverage:
 clean:
 	@echo "Cleaning build artifacts..."
 	@xcodebuild -workspace C2PA.xcworkspace -scheme Library clean
-	@xcodebuild -workspace C2PA.xcworkspace -scheme TestShared clean
-	@xcodebuild -workspace C2PA.xcworkspace -scheme TestApp clean
 	@xcodebuild -workspace C2PA.xcworkspace -scheme ExampleApp clean
 	@xcodebuild -workspace C2PA.xcworkspace -scheme SigningServer clean
 	@rm -rf SigningServer/.build
@@ -471,19 +472,15 @@ help:
 	@echo "  make use-dev-package - Swap Package.swift to local-path variant (for testing this checkout as a SPM dependency)"
 	@echo "  make use-release-package - Restore Package.swift to URL-based release variant"
 	@echo "  make spm-build    - Build the C2PA target through SPM against the local XCFramework"
-	@echo "  make test-shared  - Build the TestShared framework"
-	@echo "  make test-app     - Build the TestApp"
 	@echo "  make example-app  - Build the ExampleApp"
 	@echo "  make workspace-build - Build entire workspace"
 	@echo "  make test-library - Run library unit tests only (iOS)"
 	@echo "  make test-library-macos - Run library unit tests on macOS"
 	@echo "  C2PA_ARCHIVE_DIR=<dir> - With library/test-library/test-library-macos targets: build C2PAC from local c2pa archives instead of a release"
-	@echo "  make tests        - Run all tests"
-	@echo "  make release-tests - Run tests for release validation"
+	@echo "  make test-device DEVICE_ID=<id> - Run library tests on a connected device"
 	@echo "  make test-summary - Generate test summary from xcresult"
 	@echo "  make coverage     - Generate test coverage report"
 	@echo "  make coverage-lcov - Export coverage to LCOV format"
-	@echo "  make run-test-app - Build and run the test app in simulator"
 	@echo "  make run-example-app - Build and run the example app in simulator"
 	@echo "  make publish      - Prepare library for publishing"
 	@echo "  make validate-version - Validate version format (VERSION=vX.Y.Z or vX.Y.Z-pre.N)"
@@ -491,6 +488,8 @@ help:
 	@echo "  make package-swift - Package Swift sources"
 	@echo "  make update-package-swift - Update Package.swift for release"
 	@echo "  make signing-server-start - Start the signing server"
+	@echo "  make signing-server-start-lan - Start the signing server on the LAN (phone runs)"
+	@echo "  make device-setup - Point device builds at this Mac's signing server"
 	@echo "  make signing-server-stop  - Stop the signing server"
 	@echo "  make signing-server-status - Check server status"
 	@echo "  make signing-server-wait - Wait for server to be ready"

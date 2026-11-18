@@ -63,3 +63,5 @@ test-results.json
 # Claude
 CLAUDE.md
 .claude/*
+# Machine-local xcconfig overrides (make device-setup)
+Configurations/Local.xcconfig
