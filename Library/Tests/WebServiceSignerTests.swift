@@ -25,26 +25,32 @@ import Crypto
 import FoundationNetworking
 #endif
 
-/// Answers every request with one status and records the requests, so a
-/// WebServiceSigner's outgoing request can be inspected without a server.
+/// Answers every request the same way, with one status or one connection
+/// error, and records the requests, so a WebServiceSigner's outgoing request
+/// and its handling of the answer can be checked without a server.
 private final class RecordingURLProtocol: URLProtocol {
+    enum Answer {
+        case status(Int)
+        case failure(URLError.Code)
+    }
+
     final class State: @unchecked Sendable {
         private let lock = NSLock()
-        private var status = 401
+        private var answer = Answer.status(401)
         private var requests: [URLRequest] = []
 
-        func reset(status: Int) {
+        func reset(answer: Answer) {
             lock.lock()
             defer { lock.unlock() }
-            self.status = status
+            self.answer = answer
             requests = []
         }
 
-        func record(_ request: URLRequest) -> Int {
+        func record(_ request: URLRequest) -> Answer {
             lock.lock()
             defer { lock.unlock() }
             requests.append(request)
-            return status
+            return answer
         }
 
         var recorded: [URLRequest] {
@@ -60,17 +66,30 @@ private final class RecordingURLProtocol: URLProtocol {
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let status = Self.state.record(request)
-        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)
-        else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
+        switch Self.state.record(request) {
+        case .failure(let code):
+            client?.urlProtocol(self, didFailWithError: URLError(code))
+        case .status(let status):
+            guard let url = request.url,
+                let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)
+            else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
         }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {}
+
+    /// A session whose every request gets `answer`. The caller invalidates it.
+    static func session(answering answer: Answer) -> URLSession {
+        state.reset(answer: answer)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
 }
 
 private final class CallRecorder: @unchecked Sendable {
@@ -97,10 +116,7 @@ private final class CallRecorder: @unchecked Sendable {
     /// The bearer token and custom headers reach the configuration request,
     /// and a non-200 answer surfaces as SignerError.httpError.
     @Test func webServiceSignerCreation() async throws {
-        RecordingURLProtocol.state.reset(status: 401)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [RecordingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
+        let session = RecordingURLProtocol.session(answering: .status(401))
         defer { session.invalidateAndCancel() }
 
         let signer = WebServiceSigner(
@@ -133,8 +149,13 @@ private final class CallRecorder: @unchecked Sendable {
         }
     }
 
+    /// The connection is refused by a stub, so the test does not depend on
+    /// which ports happen to be free on the machine.
     @Test func createSignerConnectionFailure() async throws {
-        let signer = WebServiceSigner(configurationEndpoint: try #require(URL(string: "http://localhost:59999/nonexistent")))
+        let session = RecordingURLProtocol.session(answering: .failure(.cannotConnectToHost))
+        defer { session.invalidateAndCancel() }
+        let signer = WebServiceSigner(
+            configurationEndpoint: try #require(URL(string: "https://example.com/config")), urlSession: session)
         await #expect(throws: (any Error).self) { try await signer.createSigner() }
         await withKnownIssue("createSigner lets URLError escape for an unreachable service instead of SignerError") {
             await #expect(throws: SignerError.self) { try await signer.createSigner() }
@@ -169,8 +190,9 @@ private final class CallRecorder: @unchecked Sendable {
 
     @Suite(.requiresSigningServer) struct WithServer {
 
-        /// Configuration, remote signing and read-back through the signing server.
-        @Test func webServiceSignerWithLocalServer() async throws {
+        /// Configuration, remote signing and read-back through the signing
+        /// server, whose configuration names the timestamp authority.
+        @Test(.requiresTimestampAuthority) func webServiceSignerWithLocalServer() async throws {
             try await TestEnvironment.requireSigningServer()
             let signer = WebServiceSigner(
                 configurationEndpoint: TestEnvironment.signingServerURL.appendingPathComponent("api/v1/c2pa/configuration"),

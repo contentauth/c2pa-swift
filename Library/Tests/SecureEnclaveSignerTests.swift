@@ -53,7 +53,7 @@ import Testing
 
         @Test func deleteKeyIdempotent() throws {
             let config = SecureEnclaveSignerConfig(keyTag: Fixtures.uniqueKeyTag("se.delete"))
-            try Signer.createSecureEnclaveKey(config: config)
+            _ = try Signer.createSecureEnclaveKey(config: config)
             #expect(Signer.deleteSecureEnclaveKey(keyTag: config.keyTag), "first delete")
             #expect(Signer.deleteSecureEnclaveKey(keyTag: config.keyTag), "second delete")
             #expect(!TestKeychain.keyExists(tag: config.keyTag))
@@ -74,7 +74,7 @@ import Testing
             let flags: SecAccessControlCreateFlags = name == "userPresence" ? [.privateKeyUsage, .userPresence] : [.privateKeyUsage]
             let config = SecureEnclaveSignerConfig(keyTag: Fixtures.uniqueKeyTag("se.ac.\(name)"), accessControl: flags)
             defer { _ = Signer.deleteSecureEnclaveKey(keyTag: config.keyTag) }
-            try Signer.createSecureEnclaveKey(config: config)
+            _ = try Signer.createSecureEnclaveKey(config: config)
             #expect(TestKeychain.keyExists(tag: config.keyTag))
         }
 

@@ -72,12 +72,11 @@ private final class CallRecorder: @unchecked Sendable {
         #expect(try store.signatureInfo()["alg"] as? String == "Es256")
     }
 
-    /// Needs network access to DigiCert.
-    @Test func signerFromSignerInfoWithTSA() throws {
+    @Test(.requiresTimestampAuthority) func signerFromSignerInfoWithTSA() throws {
         let base = try Fixtures.signerInfo()
         let info = SignerInfo(
             algorithm: base.algorithm, certificatePEM: base.certificatePEM, privateKeyPEM: base.privateKeyPEM,
-            tsa: URL(string: "http://timestamp.digicert.com"))
+            tsa: TestEnvironment.timestampAuthorityURL)
         let store = try Fixtures.signAndRead(Builder(manifestJSON: Fixtures.createdManifestJSON()), signer: Signer(info: info))
         #expect(try store.signatureInfo()["time"] != nil)
     }

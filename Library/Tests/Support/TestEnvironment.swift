@@ -13,11 +13,13 @@
 
 import Foundation
 import Security
+import SwiftASN1
 import Testing
 
 /// What the current run can reach: a Secure Enclave, a persistent keychain,
-/// the signing server. Suites gate on these through the traits below, so a
-/// test that cannot run here shows as skipped with the reason, never as passed.
+/// the signing server, the timestamp authority. Suites gate on these through
+/// the traits below, so a test that cannot run here shows as skipped with the
+/// reason, never as passed.
 enum TestEnvironment {
 
     /// True on an iPhone or iPad, where the hardware and keychain suites always
@@ -131,6 +133,64 @@ enum TestEnvironment {
             return .unanswered("\(error.localizedDescription) (\(error.domain) \(error.code))")
         }
     }
+
+    /// The public timestamp authority the TSA tests sign through. The CAWG
+    /// settings fixtures and the signing server's configuration name it too.
+    static let timestampAuthorityURL = URL(string: "http://timestamp.digicert.com")!
+
+    /// Whether the timestamp authority answered, asked once and shared by every
+    /// test that signs through it.
+    static let timestampAuthorityAnswers = Task { await probeTimestampAuthority(timeout: 10) }
+
+    /// One timestamp query to the authority. True when it answers the way
+    /// signing through it needs: an offline machine, a sandboxed runner and an
+    /// outage all come back false.
+    static func probeTimestampAuthority(timeout: TimeInterval) async -> Bool {
+        var request = URLRequest(url: timestampAuthorityURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/timestamp-query", forHTTPHeaderField: "Content-Type")
+        do {
+            var serializer = DER.Serializer()
+            try serializer.serialize(TimestampQuery(digest: [UInt8](repeating: 0, count: 32)))
+            request.httpBody = Data(serializer.serializedBytes)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+}
+
+/// The fields of an RFC 3161 TimeStampReq that a query needs:
+///
+///     TimeStampReq ::= SEQUENCE {
+///         version         INTEGER { v1(1) },
+///         messageImprint  SEQUENCE {
+///             hashAlgorithm   AlgorithmIdentifier,
+///             hashedMessage   OCTET STRING },
+///         certReq         BOOLEAN }
+private struct TimestampQuery: DERSerializable {
+    private static let sha256: ASN1ObjectIdentifier = [2, 16, 840, 1, 101, 3, 4, 2, 1]
+
+    /// The SHA-256 digest to timestamp. The probe sends zeros, since only
+    /// whether the authority answers matters.
+    let digest: [UInt8]
+
+    func serialize(into coder: inout DER.Serializer) throws {
+        try coder.appendConstructedNode(identifier: .sequence) { request in
+            try request.serialize(1)  // version
+            try request.appendConstructedNode(identifier: .sequence) { imprint in
+                try imprint.appendConstructedNode(identifier: .sequence) { algorithm in
+                    try algorithm.serialize(Self.sha256)
+                    try algorithm.serialize(ASN1Null())
+                }
+                try imprint.serialize(ASN1OctetString(contentBytes: digest[...]))
+            }
+            // Ask for the authority's certificate, as signing does.
+            try request.serialize(true)
+        }
+    }
 }
 
 /// How a probe of the signing server's health endpoint ended.
@@ -152,6 +212,8 @@ enum SigningServerProbe: Equatable, CustomStringConvertible {
 
 extension Trait where Self == ConditionTrait {
 
+    /// A physical device only. A simulator has no Secure Enclave, whatever its
+    /// keychain can do, so this never follows `requiresKeychain`.
     static var requiresSecureEnclave: Self {
         .enabled(if: TestEnvironment.isPhysicalDevice, "Requires a physical iOS device with a Secure Enclave")
     }
@@ -168,6 +230,14 @@ extension Trait where Self == ConditionTrait {
             // One short attempt: an optional server that is down should skip
             // its suites promptly, not hold the run up.
             return await TestEnvironment.probeSigningServer(timeout: 5) == .reachable
+        }
+    }
+
+    /// For tests that sign through the public timestamp authority, which no
+    /// run controls: when it does not answer they skip instead of failing.
+    static var requiresTimestampAuthority: Self {
+        .enabled(Comment(rawValue: "Timestamp authority not reachable at \(TestEnvironment.timestampAuthorityURL)")) {
+            await TestEnvironment.timestampAuthorityAnswers.value
         }
     }
 }

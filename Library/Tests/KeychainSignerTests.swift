@@ -58,12 +58,19 @@ import Testing
             state: "CA",
             locality: "SF")
 
-        /// A keychain key with a self-signed chain for it; the caller deletes `tag`.
+        /// A keychain key with a self-signed chain for it; the caller deletes
+        /// `tag`. A failure here deletes the key itself, since the caller never
+        /// gets a tag to delete.
         private func keyWithChain(_ prefix: String) throws -> (tag: String, chain: String) {
             let tag = Fixtures.uniqueKeyTag(prefix)
-            let key = try TestKeychain.createKey(tag: tag)
-            let publicKey = try #require(SecKeyCopyPublicKey(key))
-            return (tag, try CertificateManager.createSelfSignedCertificateChain(for: publicKey, config: config))
+            do {
+                let key = try TestKeychain.createKey(tag: tag)
+                let publicKey = try #require(SecKeyCopyPublicKey(key))
+                return (tag, try CertificateManager.createSelfSignedCertificateChain(for: publicKey, config: config))
+            } catch {
+                TestKeychain.deleteKey(tag: tag)
+                throw error
+            }
         }
 
         @Test func es256WithKeychainKey() throws {

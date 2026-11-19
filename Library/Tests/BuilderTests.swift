@@ -263,6 +263,8 @@ import Testing
         let error = #expect(throws: C2PAError.self) { try C2PA.readFile(at: signed.url) }
         if case .api(let message) = error {
             #expect(message.contains("ManifestNotFound"), "message: \(message)")
+        } else {
+            Issue.record("expected .api, got \(String(describing: error))")
         }
         let sidecar = try Reader(format: "image/jpeg", stream: Stream(readFrom: signed.url), manifest: signed.manifest)
         #expect(try ManifestStore(json: sidecar.json()).assertionLabels().contains("c2pa.test"))

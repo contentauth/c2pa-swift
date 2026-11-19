@@ -16,6 +16,7 @@
 		953469862E4CB0CE003E83AD /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 953469852E4CB0CE003E83AD /* Logging */; };
 		953469892E4CB10A003E83AD /* SwiftASN1 in Frameworks */ = {isa = PBXBuildFile; productRef = 953469882E4CB10A003E83AD /* SwiftASN1 */; };
 		953469DD2E4D2578003E83AD /* C2PA.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A1234501234567890ABCDEF /* C2PA.framework */; };
+		95D1A5012F1C0001003E83AD /* SwiftASN1 in Frameworks */ = {isa = PBXBuildFile; productRef = 95D1A5002F1C0001003E83AD /* SwiftASN1 */; };
 		95892C1E2ED7059E005FC6B7 /* Intent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95892C1D2ED7059E005FC6B7 /* Intent.swift */; };
 		959C8A3A2E4E3C0000FBD820 /* C2PAC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 959C8A2E2E4E38E700FBD820 /* C2PAC.framework */; };
 		95A7823D2E6F06E4001E9748 /* Builder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A782322E6F06E4001E9748 /* Builder.swift */; };
@@ -157,6 +158,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				953469DD2E4D2578003E83AD /* C2PA.framework in Frameworks */,
+				95D1A5012F1C0001003E83AD /* SwiftASN1 in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +278,9 @@
 				2C996A5A636A2D8A51F24B23 /* Tests */,
 			);
 			name = C2PATests;
+			packageProductDependencies = (
+				95D1A5002F1C0001003E83AD /* SwiftASN1 */,
+			);
 			productName = LibraryTests;
 			productReference = 953469D92E4D2578003E83AD /* C2PATests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -493,7 +498,7 @@
 				INFOPLIST_FILE = "TestHost-Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -529,7 +534,7 @@
 				INFOPLIST_FILE = "TestHost-Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -777,7 +782,7 @@
 				DEVELOPMENT_TEAM = T3YGS3VRGN;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.contentauth.LibraryTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -802,7 +807,7 @@
 				DEVELOPMENT_TEAM = T3YGS3VRGN;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.contentauth.LibraryTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1013,6 +1018,11 @@
 			productName = Logging;
 		};
 		953469882E4CB10A003E83AD /* SwiftASN1 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 953469872E4CB10A003E83AD /* XCRemoteSwiftPackageReference "swift-asn1" */;
+			productName = SwiftASN1;
+		};
+		95D1A5002F1C0001003E83AD /* SwiftASN1 */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 953469872E4CB10A003E83AD /* XCRemoteSwiftPackageReference "swift-asn1" */;
 			productName = SwiftASN1;

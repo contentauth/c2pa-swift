@@ -119,11 +119,11 @@ private final class CallRecorder: @unchecked Sendable {
     }
 
     /// A timestamp authority countersigns the claim, which the read-back
-    /// reports as the signature's time. Needs network access to DigiCert.
-    @Test func signerWithTimestampAuthority() throws {
+    /// reports as the signature's time.
+    @Test(.requiresTimestampAuthority) func signerWithTimestampAuthority() throws {
         let signer = try Signer(
             certsPEM: Fixtures.certsPEM(), privateKeyPEM: Fixtures.privateKeyPEM(), algorithm: .es256,
-            tsa: URL(string: "http://timestamp.digicert.com"))
+            tsa: TestEnvironment.timestampAuthorityURL)
         #expect(try signAndRead(signer).signatureInfo()["time"] != nil)
     }
 
@@ -149,8 +149,8 @@ private final class CallRecorder: @unchecked Sendable {
 
     /// The CAWG settings fixtures configure a signer and a CAWG X.509 signer on
     /// top of it, so a context built from them signs and adds the identity
-    /// assertion.
-    @Test(arguments: ["toml", "json"])
+    /// assertion. Both signers name the timestamp authority.
+    @Test(.requiresTimestampAuthority, arguments: ["toml", "json"])
     func settingsSignerSignsThroughContext(format: String) throws {
         let text = try Fixtures.text("test_settings_with_cawg_signing.\(format)")
         let settings = try format == "toml" ? C2PASettings(toml: text) : C2PASettings(json: text)
