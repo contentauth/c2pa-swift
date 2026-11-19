@@ -1,6 +1,5 @@
 ignore:
-  - "TestShared"
-  - "TestApp"
+  - "Library/Tests"
+  - "Library/TestHost"
   - "ExampleApp"
   - "SigningServer"
-  - "Library/Tests"

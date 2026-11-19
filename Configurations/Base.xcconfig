@@ -19,3 +19,8 @@ SIGNING_SERVER_URL = https:/$()/your-signing-server-url:8080
 
 // Bearer token for authenticating with the C2PA signing server
 SIGNING_SERVER_TOKEN = test-bearer-token-12345
+
+// Machine-local overrides, never committed. `make device-setup` writes
+// SIGNING_SERVER_DEVICE_URL there so a phone test run reaches this Mac's
+// signing server.
+#include? "Local.xcconfig"

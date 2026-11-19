@@ -1,0 +1,49 @@
+{
+  "configurations" : [
+    {
+      "id" : "3F0C6B2E-7A41-4C8D-9E52-1B6D0A9F4C17",
+      "name" : "Debug",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverageEnabled" : true,
+    "codeCoverageTargets" : [
+      {
+        "containerPath" : "container:Library.xcodeproj",
+        "identifier" : "8A12344E1234567890ABCDEF",
+        "name" : "C2PA"
+      }
+    ],
+    "environmentVariableEntries" : [
+      {
+        "key" : "SIGNING_SERVER_URL",
+        "value" : "http:\/\/127.0.0.1:8080"
+      },
+      {
+        "key" : "SIGNING_SERVER_TOKEN",
+        "value" : "test-bearer-token-12345"
+      }
+    ],
+    "onlyGenerateCoverageForSpecifiedTargets" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Library.xcodeproj",
+      "identifier" : "8A12344E1234567890ABCDEF",
+      "name" : "C2PA"
+    },
+    "testExecutionOrdering" : "random"
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Library.xcodeproj",
+        "identifier" : "953469D82E4D2578003E83AD",
+        "name" : "C2PATests"
+      }
+    }
+  ],
+  "version" : 1
+}

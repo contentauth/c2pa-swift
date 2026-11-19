@@ -181,9 +181,10 @@ jobs:
       - name: Build & Test
         run: |
           set -o pipefail
-          echo "CI environment variable: true"
           echo "Testing with server at http://127.0.0.1:8080"
-          TEST_RUNNER_CI=true make test-library DESTINATION="${{ matrix.destination }}"
+          # The server is up, so an unreachable one fails the run rather than
+          # skipping the server suites.
+          TEST_RUNNER_C2PA_REQUIRE_SIGNING_SERVER=1 make test-library DESTINATION="${{ matrix.destination }}"
 
       - name: Generate test summary
         if: always()

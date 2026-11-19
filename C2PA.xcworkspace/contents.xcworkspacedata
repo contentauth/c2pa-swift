@@ -8,12 +8,6 @@
       location = "group:SigningServer/SigningServer.xcodeproj">
    </FileRef>
    <FileRef
-      location = "group:TestShared/TestShared.xcodeproj">
-   </FileRef>
-   <FileRef
-      location = "group:TestApp/TestApp.xcodeproj">
-   </FileRef>
-   <FileRef
       location = "group:ExampleApp/ExampleApp.xcodeproj">
    </FileRef>
 </Workspace>

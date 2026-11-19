@@ -17,7 +17,7 @@ struct ContentView: View {
     @State private var capturedImage: UIImage?
     @State private var showingSuccess = false
     @State private var successMessage = ""
-    @StateObject private var c2paManager = C2PAManager.shared
+    @State private var c2paManager = C2PAManager.shared
 
     var body: some View {
         ZStack {
@@ -88,7 +88,7 @@ struct CameraViewWrapper: View {
     @Binding var capturedImage: UIImage?
     @Binding var showingSuccess: Bool
     @Binding var successMessage: String
-    @StateObject private var c2paManager = C2PAManager.shared
+    @State private var c2paManager = C2PAManager.shared
 
     var body: some View {
         ZStack {
