@@ -117,7 +117,7 @@ public enum C2PAError: Error, LocalizedError {
             "Failed to create access control"
 
         case .keyCreationFailed(let error, let isSecureEnclave):
-            "Failed to create \(isSecureEnclave ? "Secure Enclave" : "") key\(error != nil ? ": \(error!)" : "")"
+            "Failed to create \(isSecureEnclave ? "Secure Enclave " : "")key\(error != nil ? ": \(error!)" : "")"
 
         case .publicKeyExtractionFailed:
             "Failed to extract public key"

@@ -122,13 +122,13 @@ func manifestData(length: Int64, pointer: UnsafePointer<UInt8>?) -> Data {
 /// (or `nil` when `strings` is empty). The array and its strings are valid only
 /// for the duration of `body`.
 ///
-/// - Throws: ``C2PAError`` if any string could not be duplicated. A failed `strdup`
-///   would otherwise leave a NULL in the middle of the array, which the C layer reads
-///   as the terminator and so silently truncates the list.
+/// - Throws: ``C2PAError`` if any string could not be duplicated, or the error `body`
+///   throws. A failed `strdup` would otherwise leave a NULL in the middle of the array,
+///   which the C layer reads as the terminator and so silently truncates the list.
 func withCStringArray<R>(
     _ strings: [String],
-    _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws -> R
-) throws -> R {
+    _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws(C2PAError) -> R
+) throws(C2PAError) -> R {
     guard !strings.isEmpty else { return try body(nil) }
     var cStrings: [UnsafePointer<CChar>?] = strings.map { UnsafePointer(strdup($0)) }
     cStrings.append(nil)
@@ -137,7 +137,10 @@ func withCStringArray<R>(
     guard !cStrings.dropLast().contains(where: { $0 == nil }) else {
         throw C2PAError.api("Failed to allocate C string array")
     }
-    return try cStrings.withUnsafeBufferPointer { try body($0.baseAddress) }
+    // The closure names its error type: left to inference it throws `any Error`.
+    return try cStrings.withUnsafeBufferPointer { buffer throws(C2PAError) in
+        try body(buffer.baseAddress)
+    }
 }
 
 /// Infers the MIME type for a file URL from its path extension.

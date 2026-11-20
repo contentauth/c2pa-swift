@@ -75,7 +75,8 @@ public final class C2PASettings {
     /// The definition is encoded to JSON and applied to the C2PA runtime.
     ///
     /// - Parameter definition: A settings definition struct.
-    /// - Throws: ``C2PAError`` if the settings are invalid.
+    /// - Throws: ``C2PAError`` if the settings are invalid, or the underlying encoding
+    ///   error if the definition cannot be encoded as JSON.
     ///
     /// - SeeAlso: ``C2PASettingsDefinition``
     public init(definition: C2PASettingsDefinition) throws {
@@ -113,7 +114,8 @@ public final class C2PASettings {
     /// merging with existing configuration.
     ///
     /// - Parameter definition: A settings definition struct.
-    /// - Throws: ``C2PAError`` if the settings are invalid.
+    /// - Throws: ``C2PAError`` if the settings are invalid, or the underlying encoding
+    ///   error if the definition cannot be encoded as JSON.
     public func load(definition: C2PASettingsDefinition) throws {
         let json = try C2PAJson.encode(definition)
         try Self.applyString(json, format: "json", to: ptr)
@@ -131,7 +133,9 @@ public final class C2PASettings {
     ///     (`String`, `Int`, `Double`, `Bool`, or `nil`).
     ///   - path: A dot-separated path (e.g., `"builder.thumbnail.format"`).
     ///
-    /// - Throws: ``C2PAError`` if the format is not JSON or the path is invalid.
+    /// - Throws: ``C2PAError`` if the format is not JSON or the path is invalid, or the
+    ///   underlying `JSONSerialization` error if the current settings cannot be parsed
+    ///   or the updated settings cannot be serialized.
     ///
     /// ## Example
     ///

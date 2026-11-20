@@ -39,9 +39,13 @@ import Testing
     }
 
     @Test func bodyErrorPropagates() {
-        struct Sentinel: Error {}
-        #expect(throws: Sentinel.self, "an error thrown by body should reach the caller unchanged") {
-            try withCStringArray(["a"]) { _ -> Int in throw Sentinel() }
+        let error = #expect(throws: C2PAError.self) {
+            try withCStringArray(["a"]) { _ throws(C2PAError) -> Int in throw C2PAError.api("sentinel") }
         }
+        guard case .api(let message) = error else {
+            Issue.record("expected the .api error body threw, got \(String(describing: error))")
+            return
+        }
+        #expect(message == "sentinel", "an error thrown by body should reach the caller unchanged")
     }
 }

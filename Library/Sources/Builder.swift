@@ -124,7 +124,8 @@ public final class Builder {
     /// - Parameter manifest: The manifest definition to build.
     ///
     /// - Throws: ``C2PAError/manifestValidationFailed(_:)`` if validation finds errors,
-    ///   or ``C2PAError`` if the JSON cannot be parsed by the C layer.
+    ///   ``C2PAError`` if the JSON cannot be parsed by the C layer, or the underlying
+    ///   encoding error if the manifest cannot be encoded as JSON.
     public convenience init(manifest: ManifestDefinition) throws {
         try self.init(context: C2PAContext(), manifest: manifest)
     }
@@ -198,7 +199,8 @@ public final class Builder {
     ///   - manifest: The manifest definition to build.
     ///
     /// - Throws: ``C2PAError/manifestValidationFailed(_:)`` if validation finds errors,
-    ///   or ``C2PAError`` if the JSON cannot be parsed by the C layer.
+    ///   ``C2PAError`` if the JSON cannot be parsed by the C layer, or the underlying
+    ///   encoding error if the manifest cannot be encoded as JSON.
     ///
     /// - SeeAlso: ``C2PAContext``, ``ManifestDefinition``
     public convenience init(context: C2PAContext, manifest: ManifestDefinition) throws {
@@ -246,7 +248,8 @@ public final class Builder {
     ///
     /// - Parameter action: The ``Action`` to add to the manifest.
     ///
-    /// - Throws: ``C2PAError`` if the action cannot be added.
+    /// - Throws: ``C2PAError`` if the action cannot be added, or the underlying encoding
+    ///   error if the action cannot be encoded as JSON.
     ///
     /// ## Example
     ///

@@ -378,11 +378,6 @@ final class C2PAManager {
                 "builder.sign failed with error: %{public}@", log: Logger.signing, type: .error,
                 String(describing: error))
 
-            // Check if it's a C2PA error
-            if let c2paError = error as? C2PAError {
-                os_log("C2PA Error type: %{public}@", log: Logger.signing, type: .error, String(describing: c2paError))
-            }
-
             throw error
         }
 
