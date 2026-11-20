@@ -27,4 +27,43 @@ import Testing
         #expect(C2PAError.utf8.localizedDescription == "Invalid UTF-8 from C2PA")
         #expect(C2PAError.negative(42).localizedDescription == "C2PA negative status 42")
     }
+
+    private struct Cause: Error, CustomStringConvertible {
+        let description = "cause"
+    }
+
+    @Test func keyAndSigningErrorDescriptions() {
+        #expect(C2PAError.ed25519NotSupported.localizedDescription == "Ed25519 not supported by Keychain")
+        #expect(C2PAError.keySearchFailed("tag", -25300).localizedDescription == "Failed to find key 'tag' in keychain: -25300")
+        #expect(
+            C2PAError.keySearchFailed("tag", -25300, true).localizedDescription
+                == "Failed to find key 'tag' in Secure Enclave: -25300")
+        #expect(C2PAError.unsupportedAlgorithm(.ed25519).localizedDescription == "Key doesn't support algorithm ed25519")
+        #expect(
+            C2PAError.unsupportedAlgorithm(.ps256, true).localizedDescription
+                == "Secure Enclave key doesn't support algorithm ps256")
+        #expect(C2PAError.signingFailed().localizedDescription == "Signing failed")
+        #expect(C2PAError.signingFailed(Cause(), true).localizedDescription == "Secure Enclave signing failed: cause")
+        #expect(C2PAError.accessControlCreationFailed.localizedDescription == "Failed to create access control")
+        #expect(C2PAError.publicKeyExtractionFailed.localizedDescription == "Failed to extract public key")
+        #expect(C2PAError.publicKeyExportFailed().localizedDescription == "Failed to export public key")
+        #expect(C2PAError.publicKeyExportFailed(Cause()).localizedDescription == "Failed to export public key: cause")
+        #expect(C2PAError.asyncSigningFailed.localizedDescription == "Async signing operation failed")
+    }
+
+    /// Outside the Secure Enclave the message names no key kind, and leaves no gap where one would go.
+    @Test func keyCreationErrorDescriptions() {
+        #expect(C2PAError.keyCreationFailed().localizedDescription == "Failed to create key")
+        #expect(C2PAError.keyCreationFailed(Cause()).localizedDescription == "Failed to create key: cause")
+        #expect(
+            C2PAError.keyCreationFailed(Cause(), true).localizedDescription
+                == "Failed to create Secure Enclave key: cause")
+    }
+
+    @Test func manifestValidationErrorDescription() {
+        let result = ManifestValidationResult(errors: ["no title", "no format"])
+        #expect(
+            C2PAError.manifestValidationFailed(result).localizedDescription
+                == "Manifest validation failed: no title; no format")
+    }
 }

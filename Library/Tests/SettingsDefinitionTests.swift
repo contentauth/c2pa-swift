@@ -281,6 +281,27 @@ import Testing
         #expect(try !signedManifestHasThumbnail(settings))
     }
 
+    @Test func c2paSettingsLoadJSON() throws {
+        let settings = try C2PASettings(json: #"{"version": 1}"#)
+        try settings.load(json: #"{"version": 1, "builder": {"thumbnail": {"enabled": false}}}"#)
+        #expect(try !signedManifestHasThumbnail(settings))
+    }
+
+    @Test func c2paSettingsLoadTOML() throws {
+        let settings = try C2PASettings(toml: "version = 1")
+        try settings.load(toml: "version = 1\n\n[builder.thumbnail]\nenabled = false\n")
+        #expect(try !signedManifestHasThumbnail(settings))
+    }
+
+    @Test func c2paSettingsRejectMalformedJSON() {
+        #expect(throws: C2PAError.self) { try C2PASettings(json: #"{"version": "#) }
+    }
+
+    @Test func c2paSettingsLoadRejectsMalformedTOML() throws {
+        let settings = try C2PASettings(toml: "version = 1")
+        #expect(throws: C2PAError.self) { try settings.load(toml: "version = ") }
+    }
+
     @Test func c2paSettingsSetValue() throws {
         let settings = try C2PASettings(json: #"{"version": 1}"#)
         try settings.setValue(false, forPath: "builder.thumbnail.enabled")
