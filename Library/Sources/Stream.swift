@@ -203,7 +203,7 @@ public final class Stream {
         seek: Seeker? = nil,
         write: Writer? = nil,
         flush: Flusher? = nil
-    ) throws {
+    ) throws(C2PAError) {
         self.init(streamProvider: StreamProvider(r: read, s: seek, w: write, f: flush))
     }
 
@@ -218,7 +218,7 @@ public final class Stream {
     ///
     /// - Note: The data is copied internally, so modifications to the original
     ///   `Data` object after creating the stream will not affect the stream.
-    public convenience init(data: Data) throws {
+    public convenience init(data: Data) throws(C2PAError) {
         var cursor = 0
         let streamProvider = StreamProvider(
             r: { buffer, count in

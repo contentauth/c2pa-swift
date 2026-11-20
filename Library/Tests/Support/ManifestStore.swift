@@ -70,12 +70,16 @@ struct ManifestStore {
         try manifest(label ?? activeLabel)["signature_info"] as? [String: Any] ?? [:]
     }
 
-    /// The action names in the manifest's actions assertion (c2pa.actions or c2pa.actions.v2).
-    func actions(of label: String? = nil) throws -> [String] {
+    /// The entries of the manifest's actions assertion (c2pa.actions or c2pa.actions.v2).
+    func actionEntries(of label: String? = nil) throws -> [[String: Any]] {
         let assertions = try manifest(label ?? activeLabel)["assertions"] as? [[String: Any]] ?? []
         return assertions
             .filter { ($0["label"] as? String)?.hasPrefix("c2pa.actions") == true }
             .flatMap { (($0["data"] as? [String: Any])?["actions"] as? [[String: Any]]) ?? [] }
-            .compactMap { $0["action"] as? String }
+    }
+
+    /// The action names in the manifest's actions assertion.
+    func actions(of label: String? = nil) throws -> [String] {
+        try actionEntries(of: label).compactMap { $0["action"] as? String }
     }
 }

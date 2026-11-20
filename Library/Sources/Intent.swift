@@ -61,11 +61,11 @@ public enum BuilderIntent: Sendable {
     internal func toCIntent() -> (C2paBuilderIntent, C2paDigitalSourceType) {
         switch self {
         case .create(let sourceType):
-            return (Create, sourceType.toCType())
+            (Create, sourceType.toCType())
         case .edit:
-            return (Edit, Empty)
+            (Edit, Empty)
         case .update:
-            return (Update, Empty)
+            (Update, Empty)
         }
     }
 }
@@ -77,37 +77,37 @@ extension DigitalSourceType {
     internal func toCType() -> C2paDigitalSourceType {
         switch self {
         case .algorithmicallyEnhanced:
-            return AlgorithmicallyEnhanced
+            AlgorithmicallyEnhanced
         case .algorithmicMedia:
-            return AlgorithmicMedia
+            AlgorithmicMedia
         case .composite:
-            return Composite
+            Composite
         case .compositeCapture:
-            return CompositeCapture
+            CompositeCapture
         case .compositeSynthetic:
-            return CompositeSynthetic
+            CompositeSynthetic
         case .compositeWithTrainedAlgorithmicMedia:
-            return CompositeWithTrainedAlgorithmicMedia
+            CompositeWithTrainedAlgorithmicMedia
         case .dataDrivenMedia:
-            return DataDrivenMedia
+            DataDrivenMedia
         case .digitalCreation:
-            return DigitalCreation
+            DigitalCreation
         case .digitalCapture:
-            return DigitalCapture
+            DigitalCapture
         case .humanEdits:
-            return HumanEdits
+            HumanEdits
         case .negativeFilm:
-            return NegativeFilm
+            NegativeFilm
         case .positiveFilm:
-            return PositiveFilm
+            PositiveFilm
         case .print:
-            return Print
+            Print
         case .screenCapture:
-            return ScreenCapture
+            ScreenCapture
         case .trainedAlgorithmicMedia:
-            return TrainedAlgorithmicMedia
+            TrainedAlgorithmicMedia
         case .virtualRecording:
-            return VirtualRecording
+            VirtualRecording
         }
     }
 }

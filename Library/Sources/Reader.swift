@@ -79,7 +79,7 @@ public final class Reader {
     /// - Throws: ``C2PAError`` if the stream cannot be read or contains no valid manifest.
     ///
     /// - SeeAlso: ``C2PAContext``
-    public convenience init(context: C2PAContext, format: String, stream: Stream) throws {
+    public convenience init(context: C2PAContext, format: String, stream: Stream) throws(C2PAError) {
         let base = try guardNotNull(c2pa_reader_from_context(context.ptr))
         self.init(
             adopting: try guardNotNull(c2pa_reader_with_stream(base, format, stream.rawPtr)),
@@ -97,7 +97,7 @@ public final class Reader {
     ///   - stream: A ``Stream`` containing the media file data.
     ///
     /// - Throws: ``C2PAError`` if the stream cannot be read or contains no valid manifest.
-    public convenience init(format: String, stream: Stream) throws {
+    public convenience init(format: String, stream: Stream) throws(C2PAError) {
         try self.init(context: C2PAContext(), format: format, stream: stream)
     }
 
@@ -112,19 +112,19 @@ public final class Reader {
     /// - Throws: ``C2PAError`` if the manifest or stream cannot be processed.
     ///
     /// - SeeAlso: ``C2PAContext``
-    public convenience init(context: C2PAContext, format: String, stream: Stream, manifest: Data) throws {
+    public convenience init(context: C2PAContext, format: String, stream: Stream, manifest: Data) throws(C2PAError) {
         let base = try guardNotNull(c2pa_reader_from_context(context.ptr))
-        let reader = try manifest.withUnsafeBytes { buf in
-            try guardNotNull(
-                c2pa_reader_with_manifest_data_and_stream(
-                    base,
-                    format,
-                    stream.rawPtr,
-                    buf.bindMemory(to: UInt8.self).baseAddress,
-                    UInt(manifest.count)
-                )
+        // The null check sits outside the closure because `Data.withUnsafeBytes` erases the
+        // type of an error thrown inside it.
+        let reader = try guardNotNull(manifest.withUnsafeBytes { buf in
+            c2pa_reader_with_manifest_data_and_stream(
+                base,
+                format,
+                stream.rawPtr,
+                buf.bindMemory(to: UInt8.self).baseAddress,
+                UInt(manifest.count)
             )
-        }
+        })
         self.init(adopting: reader, context: context)
     }
 
@@ -140,7 +140,7 @@ public final class Reader {
     ///   - manifest: The raw manifest bytes.
     ///
     /// - Throws: ``C2PAError`` if the manifest or stream cannot be processed.
-    public convenience init(format: String, stream: Stream, manifest: Data) throws {
+    public convenience init(format: String, stream: Stream, manifest: Data) throws(C2PAError) {
         try self.init(context: C2PAContext(), format: format, stream: stream, manifest: manifest)
     }
 
@@ -156,7 +156,7 @@ public final class Reader {
     /// - Throws: ``C2PAError`` if the manifest cannot be read or is invalid.
     ///
     /// - SeeAlso: ``detailedJSON()``
-    public func json() throws -> String {
+    public func json() throws(C2PAError) -> String {
         try stringFromC(c2pa_reader_json(ptr))
     }
 
@@ -185,7 +185,7 @@ public final class Reader {
     /// ```
     ///
     /// - SeeAlso: ``json()``
-    public func detailedJSON() throws -> String {
+    public func detailedJSON() throws(C2PAError) -> String {
         try stringFromC(c2pa_reader_detailed_json(ptr))
     }
 
@@ -200,7 +200,7 @@ public final class Reader {
     /// - Throws: ``C2PAError`` if the manifest cannot be read or is invalid.
     ///
     /// - SeeAlso: ``json()``, ``detailedJSON()``
-    public func crJSON() throws -> String {
+    public func crJSON() throws(C2PAError) -> String {
         try stringFromC(c2pa_reader_crjson(ptr))
     }
 
@@ -267,7 +267,7 @@ public final class Reader {
     ///   - dest: A ``Stream`` where the resource data will be written.
     ///
     /// - Throws: ``C2PAError`` if the resource cannot be found or extracted.
-    public func resource(uri: String, to dest: Stream) throws {
+    public func resource(uri: String, to dest: Stream) throws(C2PAError) {
         _ = try guardNonNegative(
             c2pa_reader_resource_to_stream(ptr, uri, dest.rawPtr)
         )

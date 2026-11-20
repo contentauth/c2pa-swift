@@ -39,13 +39,12 @@ import Testing
         expectAPIError(error, containing: "ManifestNotFound")
     }
 
-    /// The doc comment promises C2PAError when the file cannot be read.
+    /// The doc comment: the underlying file error when the file cannot be opened.
     @Test func readFileNonExistent() {
         let missing = Fixtures.tempURL(extension: "jpg")
-        #expect(throws: (any Error).self) { try C2PA.readFile(at: missing) }
-        withKnownIssue("readFile lets Foundation's file-open error escape instead of C2PAError") {
-            #expect(throws: C2PAError.self) { try C2PA.readFile(at: missing) }
-        }
+        let error = #expect(throws: (any Error).self) { try C2PA.readFile(at: missing) }
+        #expect(!(error is C2PAError), "a missing file surfaces the file error, got \(String(describing: error))")
+        #expect((error as NSError?)?.domain == NSCocoaErrorDomain, "error: \(String(describing: error))")
     }
 
     @Test func readFileUnknownExtension() throws {

@@ -16,7 +16,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 @inline(__always)
-func stringFromC(_ p: UnsafeMutablePointer<CChar>?) throws -> String {
+func stringFromC(_ p: UnsafeMutablePointer<CChar>?) throws(C2PAError) -> String {
     guard let p else { throw C2PAError.api(lastC2PAError()) }
     defer { _ = c2pa_free(p) }
     guard let s = String(validatingCString: p) else { throw C2PAError.utf8 }
@@ -41,14 +41,14 @@ func setLastC2PAError(_ message: String) {
 }
 
 @inline(__always)
-func guardNotNull<T>(_ p: UnsafeMutablePointer<T>?) throws -> UnsafeMutablePointer<T> {
+func guardNotNull<T>(_ p: UnsafeMutablePointer<T>?) throws(C2PAError) -> UnsafeMutablePointer<T> {
     if let p { return p }
     throw C2PAError.api(lastC2PAError())
 }
 
 @inline(__always)
 @discardableResult
-func guardNonNegative(_ v: Int64) throws -> Int64 {
+func guardNonNegative(_ v: Int64) throws(C2PAError) -> Int64 {
     if v < 0 { throw C2PAError.api(lastC2PAError()) }
     return v
 }
@@ -122,13 +122,13 @@ func manifestData(length: Int64, pointer: UnsafePointer<UInt8>?) -> Data {
 /// (or `nil` when `strings` is empty). The array and its strings are valid only
 /// for the duration of `body`.
 ///
-/// - Throws: ``C2PAError`` if any string could not be duplicated. A failed `strdup`
-///   would otherwise leave a NULL in the middle of the array, which the C layer reads
-///   as the terminator and so silently truncates the list.
+/// - Throws: ``C2PAError`` if any string could not be duplicated, or the error `body`
+///   throws. A failed `strdup` would otherwise leave a NULL in the middle of the array,
+///   which the C layer reads as the terminator and so silently truncates the list.
 func withCStringArray<R>(
     _ strings: [String],
-    _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws -> R
-) throws -> R {
+    _ body: (UnsafePointer<UnsafePointer<CChar>?>?) throws(C2PAError) -> R
+) throws(C2PAError) -> R {
     guard !strings.isEmpty else { return try body(nil) }
     var cStrings: [UnsafePointer<CChar>?] = strings.map { UnsafePointer(strdup($0)) }
     cStrings.append(nil)
@@ -137,7 +137,10 @@ func withCStringArray<R>(
     guard !cStrings.dropLast().contains(where: { $0 == nil }) else {
         throw C2PAError.api("Failed to allocate C string array")
     }
-    return try cStrings.withUnsafeBufferPointer { try body($0.baseAddress) }
+    // The closure names its error type: left to inference it throws `any Error`.
+    return try cStrings.withUnsafeBufferPointer { buffer throws(C2PAError) in
+        try body(buffer.baseAddress)
+    }
 }
 
 /// Infers the MIME type for a file URL from its path extension.
@@ -145,7 +148,7 @@ func withCStringArray<R>(
 /// - Parameter url: The file URL whose extension determines the MIME type.
 /// - Returns: The preferred MIME type (e.g. `"image/jpeg"`).
 /// - Throws: ``C2PAError`` if the extension maps to no known type.
-func inferredMIMEType(for url: URL) throws -> String {
+func inferredMIMEType(for url: URL) throws(C2PAError) -> String {
     guard let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType else {
         throw C2PAError.api("Unsupported or unknown file type for extension '\(url.pathExtension)'")
     }

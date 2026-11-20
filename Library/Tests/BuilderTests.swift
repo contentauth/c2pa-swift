@@ -111,6 +111,22 @@ import Testing
         #expect(try Fixtures.signAndRead(builder).actions().first == "c2pa.created")
     }
 
+    /// The created action carries the source type the intent names, so a type
+    /// mapped to the wrong C constant reads back as a different one.
+    @Test(arguments: [
+        DigitalSourceType.algorithmicallyEnhanced, .algorithmicMedia, .composite, .compositeCapture,
+        .compositeSynthetic, .compositeWithTrainedAlgorithmicMedia, .dataDrivenMedia, .digitalCreation,
+        .digitalCapture, .humanEdits, .negativeFilm, .positiveFilm, .print, .screenCapture,
+        .trainedAlgorithmicMedia, .virtualRecording
+    ])
+    func builderSetIntentCreateSourceType(_ sourceType: DigitalSourceType) throws {
+        let builder = try Builder(manifestJSON: Fixtures.editManifestJSON())
+        try builder.setIntent(.create(sourceType))
+        let created = try #require(try Fixtures.signAndRead(builder).actionEntries().first)
+        #expect(created["action"] as? String == "c2pa.created")
+        #expect(created["digitalSourceType"] as? String == sourceType.rawValue)
+    }
+
     /// The edit intent takes the source asset as the parent ingredient.
     @Test func builderSetIntentEdit() throws {
         let builder = try Builder(manifestJSON: Fixtures.editManifestJSON())
