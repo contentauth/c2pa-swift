@@ -313,7 +313,7 @@ public class CertificateManager {
         ]
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &item)
 
         guard status == errSecSuccess,
             let privateKey = item as! SecKey?
@@ -556,14 +556,14 @@ public class CertificateManager {
 
         var error: Unmanaged<CFError>?
         guard
-            let signature = SecKeyCreateSignature(
+            let signature = unsafe SecKeyCreateSignature(
                 privateKey,
                 algorithm,
                 data as CFData,
                 &error
             ) as Data?
         else {
-            if let error = error?.takeRetainedValue() {
+            if let error = unsafe error?.takeRetainedValue() {
                 throw CertificateError.signingFailed(error.localizedDescription)
             }
             throw CertificateError.signingFailed("Unknown signing error")
@@ -586,7 +586,7 @@ public class CertificateManager {
         ]
 
         var items: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &items)
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &items)
 
         guard status == errSecSuccess,
             let keys = items as? [SecKey]

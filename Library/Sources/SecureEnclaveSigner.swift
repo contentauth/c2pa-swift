@@ -106,7 +106,7 @@ extension Signer {
             ]
 
             var item: CFTypeRef?
-            let status = SecItemCopyMatching(query as CFDictionary, &item)
+            let status = unsafe SecItemCopyMatching(query as CFDictionary, &item)
 
             let privateKey: SecKey
             if status == errSecItemNotFound {
@@ -125,13 +125,13 @@ extension Signer {
 
             var error: Unmanaged<CFError>?
             guard
-                let signature = SecKeyCreateSignature(
+                let signature = unsafe SecKeyCreateSignature(
                     privateKey,
                     algorithm.secKeyAlgo!,
                     data as CFData,
                     &error)
             else {
-                throw C2PAError.signingFailed(error?.takeRetainedValue(), true)
+                throw unsafe C2PAError.signingFailed(error?.takeRetainedValue(), true)
             }
 
             return signature as Data
@@ -178,8 +178,8 @@ extension Signer {
         ]
 
         var error: Unmanaged<CFError>?
-        guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            throw C2PAError.keyCreationFailed(error?.takeRetainedValue(), true)
+        guard let privateKey = unsafe SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+            throw unsafe C2PAError.keyCreationFailed(error?.takeRetainedValue(), true)
         }
 
         return privateKey

@@ -325,16 +325,16 @@ extension Signer {
 
             Task.detached {
                 do {
-                    result = .success(try await asyncSigner(data))
+                    unsafe result = .success(try await asyncSigner(data))
                 } catch {
-                    result = .failure(error)
+                    unsafe result = .failure(error)
                 }
                 semaphore.signal()
             }
 
             semaphore.wait()
 
-            guard let result else { throw C2PAError.asyncSigningFailed }
+            guard let result = unsafe result else { throw C2PAError.asyncSigningFailed }
             return try result.get()
         }
     }
