@@ -29,9 +29,9 @@ import Foundation
 public enum C2PA {
 
     public static var version: String {
-        let p = c2pa_version()!
-        defer { _ = c2pa_free(p) }
-        return String(cString: p)
+        let p = unsafe c2pa_version()!
+        defer { _ = unsafe c2pa_free(p) }
+        return unsafe String(cString: p)
     }
 
     /// Reads the C2PA manifest from a file and returns it as JSON.

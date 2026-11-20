@@ -129,8 +129,8 @@ private let resolverFailed: Int32 = 1
 ///
 /// With no observer there is nothing to ask, so the operation continues.
 private let progressTrampoline: ProgressCCallback = { context, phase, step, total in
-    guard let context else { return progressContinue }
-    let box = Unmanaged<ProgressCallbackBox>.fromOpaque(context).takeUnretainedValue()
+    guard let context = unsafe context else { return progressContinue }
+    let box = unsafe Unmanaged<ProgressCallbackBox>.fromOpaque(context).takeUnretainedValue()
     let update = ProgressUpdate(phase: ProgressPhase(phase), step: step, total: total)
     switch box.onProgress(update) {
     case .continue: return progressContinue
@@ -143,14 +143,14 @@ private let progressTrampoline: ProgressCCallback = { context, phase, step, tota
 /// Returning non-zero signals failure, and the contract requires setting the error message
 /// first: the native side reads it on this same thread as soon as the callback returns.
 private let httpResolverTrampoline: C2paHttpResolverCallback = { context, request, response in
-    guard let context, let request, let response else {
+    guard let context = unsafe context, let request = unsafe request, let response = unsafe response else {
         setLastC2PAError("NullParameter: HTTP resolver received a null pointer")
         return resolverFailed
     }
-    let box = Unmanaged<HTTPResolverBox>.fromOpaque(context).takeUnretainedValue()
-    let incoming = request.pointee
+    let box = unsafe Unmanaged<HTTPResolverBox>.fromOpaque(context).takeUnretainedValue()
+    let incoming = unsafe request.pointee
 
-    guard let urlPtr = incoming.url, let url = URL(string: String(cString: urlPtr)) else {
+    guard let urlPtr = unsafe incoming.url, let url = unsafe URL(string: String(cString: urlPtr)) else {
         setLastC2PAError("Other: invalid HTTP request URL")
         return resolverFailed
     }
@@ -158,14 +158,14 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
     // The native side always sends a method, so this refuses rather than guessing: a silent
     // fallback to GET would turn a POST (OCSP, timestamping) into a request the server
     // rejects, surfacing far from the cause.
-    guard let methodPtr = incoming.method else {
+    guard let methodPtr = unsafe incoming.method else {
         setLastC2PAError("NullParameter: HTTP request has no method")
         return resolverFailed
     }
-    let method = String(cString: methodPtr)
+    let method = unsafe String(cString: methodPtr)
     var headers: [String: String] = [:]
-    if let rawHeaders = incoming.headers {
-        for line in String(cString: rawHeaders).split(separator: "\n") {
+    if let rawHeaders = unsafe incoming.headers {
+        for line in unsafe String(cString: rawHeaders).split(separator: "\n") {
             guard let separator = line.firstIndex(of: ":") else { continue }
             // Newlines are in the trim set too: the C layer documents "\n"-delimited headers,
             // but CRLF would otherwise leave a trailing "\r" on every value.
@@ -176,8 +176,8 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
             if !name.isEmpty { headers[name] = value }
         }
     }
-    let body: Data? = incoming.body.flatMap { bytes in
-        incoming.body_len > 0 ? Data(bytes: bytes, count: Int(incoming.body_len)) : nil
+    let body: Data? = unsafe incoming.body.flatMap { bytes in
+        unsafe incoming.body_len > 0 ? Data(bytes: bytes, count: Int(incoming.body_len)) : nil
     }
 
     do {
@@ -189,21 +189,21 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
             setLastC2PAError("Other: HTTP response status \(result.status) is out of range")
             return resolverFailed
         }
-        response.pointee.status = status
+        unsafe response.pointee.status = status
         if result.body.isEmpty {
             // Both fields must move together. Rust skips its free when body_len is zero, so a
             // non-null pointer paired with a zero length would leak the allocation.
-            response.pointee.body = nil
-            response.pointee.body_len = 0
+            unsafe response.pointee.body = nil
+            unsafe response.pointee.body_len = 0
         } else {
             // Rust takes ownership of this allocation and frees it.
-            guard let buffer = malloc(result.body.count)?.assumingMemoryBound(to: UInt8.self) else {
+            guard let buffer = unsafe malloc(result.body.count)?.assumingMemoryBound(to: UInt8.self) else {
                 setLastC2PAError("Other: failed to allocate the HTTP response body")
                 return resolverFailed
             }
-            result.body.copyBytes(to: buffer, count: result.body.count)
-            response.pointee.body = buffer
-            response.pointee.body_len = UInt(result.body.count)
+            unsafe result.body.copyBytes(to: buffer, count: result.body.count)
+            unsafe response.pointee.body = unsafe buffer
+            unsafe response.pointee.body_len = UInt(result.body.count)
         }
         return resolverSucceeded
     } catch {
@@ -254,6 +254,7 @@ private let httpResolverTrampoline: C2paHttpResolverCallback = { context, reques
 /// another one.
 ///
 /// - SeeAlso: ``C2PASettings``, ``Builder``
+@safe
 public final class C2PAContext: @unchecked Sendable {
     // Unchecked because the compiler cannot see through the pointer. The conformance holds
     // because `ptr` is assigned once, the native context is documented as immutable and
@@ -280,7 +281,7 @@ public final class C2PAContext: @unchecked Sendable {
         callbackBoxes: [any Sendable] = [],
         ownedSigner: Signer? = nil
     ) {
-        self.ptr = ptr
+        unsafe self.ptr = unsafe ptr
         self.callbackBoxes = callbackBoxes
         self.ownedSigner = ownedSigner
     }
@@ -326,32 +327,32 @@ public final class C2PAContext: @unchecked Sendable {
         httpResolver: (@Sendable (HTTPRequest) throws -> HTTPResponse)? = nil
     ) throws(C2PAError) {
         guard settings != nil || signer != nil || onProgress != nil || httpResolver != nil else {
-            self.init(ptr: try guardNotNull(c2pa_context_new()))
+            unsafe self.init(ptr: try guardNotNull(c2pa_context_new()))
             return
         }
 
-        let builder = try guardNotNull(c2pa_context_builder_new())
+        let builder = try unsafe guardNotNull(c2pa_context_builder_new())
         var boxes: [any Sendable] = []
         do throws(C2PAError) {
             if let settings {
-                _ = try guardNonNegative(
+                _ = try unsafe guardNonNegative(
                     Int64(c2pa_context_builder_set_settings(builder, settings.rawPtr)))
             }
 
             if let onProgress {
                 let box = ProgressCallbackBox(onProgress)
                 boxes.append(box)
-                _ = try guardNonNegative(Int64(c2pa_context_builder_set_progress_callback(
+                _ = try unsafe guardNonNegative(Int64(c2pa_context_builder_set_progress_callback(
                     builder, Unmanaged.passUnretained(box).toOpaque(), progressTrampoline)))
             }
 
             if let httpResolver {
                 let box = HTTPResolverBox(httpResolver)
                 boxes.append(box)
-                let resolver = try guardNotNull(c2pa_http_resolver_create(
+                let resolver = try unsafe guardNotNull(c2pa_http_resolver_create(
                     Unmanaged.passUnretained(box).toOpaque(), httpResolverTrampoline))
                 do {
-                    _ = try guardNonNegative(
+                    _ = try unsafe guardNonNegative(
                         Int64(c2pa_context_builder_set_http_resolver(builder, resolver)))
                 } catch {
                     // Ownership passes only once the native call's own pointer checks have
@@ -359,7 +360,7 @@ public final class C2PAContext: @unchecked Sendable {
                     // to release. Note the header states consumption unconditionally, which is
                     // stricter than the implementation: verified against c2pa-c-ffi-v0.90.0,
                     // and worth re-checking whenever C2PA_VERSION moves.
-                    _ = c2pa_free(resolver)
+                    _ = unsafe c2pa_free(resolver)
                     throw error
                 }
             }
@@ -372,16 +373,16 @@ public final class C2PAContext: @unchecked Sendable {
             // at worst it leaks, where freeing it could be a double free. Verified against
             // c2pa-v0.92.0, and worth re-checking whenever C2PA_VERSION moves.
             if let signer {
-                _ = try guardNonNegative(
+                _ = try unsafe guardNonNegative(
                     Int64(c2pa_context_builder_set_signer(builder, try signer.consume())))
             }
         } catch {
-            _ = c2pa_free(builder)
+            _ = unsafe c2pa_free(builder)
             throw error
         }
 
         // c2pa_context_builder_build consumes the builder, even on failure.
-        self.init(
+        unsafe self.init(
             ptr: try guardNotNull(c2pa_context_builder_build(builder)),
             callbackBoxes: boxes,
             ownedSigner: signer)
@@ -451,15 +452,15 @@ public final class C2PAContext: @unchecked Sendable {
                 nonisolated(unsafe) var result: Result<HTTPResponse, Error>?
                 let task = urlSession.dataTask(with: urlRequest) { data, response, error in
                     if let error {
-                        result = .failure(
+                        unsafe result = .failure(
                             C2PAError.api("HTTP resolver request failed: \(error)"))
                     } else if let http = response as? HTTPURLResponse {
-                        result = .success(HTTPResponse(
+                        unsafe result = .success(HTTPResponse(
                             status: http.statusCode, body: data ?? Data()))
                     } else {
                         // Every request the SDK makes here is HTTP. Reporting status 0 for
                         // anything else would look like a successful fetch of nothing.
-                        result = .failure(C2PAError.api(
+                        unsafe result = .failure(C2PAError.api(
                             "HTTP resolver got a non-HTTP response for \(request.url)"))
                     }
                     semaphore.signal()
@@ -469,14 +470,14 @@ public final class C2PAContext: @unchecked Sendable {
 
                 // Unreachable: the semaphore is only signalled after `result` is set. Present
                 // because the compiler cannot see that.
-                guard let result else {
+                guard let result = unsafe result else {
                     throw C2PAError.api("HTTP resolver produced no response")
                 }
                 return try result.get()
             })
     }
 
-    deinit { _ = c2pa_free(ptr) }
+    deinit { _ = unsafe c2pa_free(ptr) }
 
     /// Requests cancellation of every in-progress signing or reading operation on this
     /// context.
@@ -490,7 +491,7 @@ public final class C2PAContext: @unchecked Sendable {
     ///
     /// - Throws: ``C2PAError`` if the cancellation request fails.
     public func cancel() throws(C2PAError) {
-        guard c2pa_context_cancel(ptr) == 0 else {
+        guard unsafe c2pa_context_cancel(ptr) == 0 else {
             throw C2PAError.api(lastC2PAError())
         }
     }

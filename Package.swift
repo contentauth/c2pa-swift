@@ -45,7 +45,8 @@ let package = Package(
                 .product(name: "SwiftASN1", package: "swift-asn1"),
                 .product(name: "Crypto", package: "swift-crypto")
             ],
-            path: "Library/Sources"
+            path: "Library/Sources",
+            swiftSettings: [.strictMemorySafety()]
         )
     ]
 )

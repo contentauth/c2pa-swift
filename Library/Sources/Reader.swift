@@ -53,6 +53,7 @@ import Foundation
 /// ```
 ///
 /// - SeeAlso: ``Stream``, ``C2PA/readFile(at:)``
+@safe
 public final class Reader {
     private let ptr: UnsafeMutablePointer<C2paReader>
 
@@ -62,7 +63,7 @@ public final class Reader {
 
     /// Adopts an already-built native reader.
     private init(adopting reader: UnsafeMutablePointer<C2paReader>, context: C2PAContext?) {
-        self.ptr = reader
+        unsafe self.ptr = unsafe reader
         self.context = context
     }
 
@@ -80,8 +81,8 @@ public final class Reader {
     ///
     /// - SeeAlso: ``C2PAContext``
     public convenience init(context: C2PAContext, format: String, stream: Stream) throws(C2PAError) {
-        let base = try guardNotNull(c2pa_reader_from_context(context.ptr))
-        self.init(
+        let base = try unsafe guardNotNull(c2pa_reader_from_context(context.ptr))
+        unsafe self.init(
             adopting: try guardNotNull(c2pa_reader_with_stream(base, format, stream.rawPtr)),
             context: context
         )
@@ -113,11 +114,11 @@ public final class Reader {
     ///
     /// - SeeAlso: ``C2PAContext``
     public convenience init(context: C2PAContext, format: String, stream: Stream, manifest: Data) throws(C2PAError) {
-        let base = try guardNotNull(c2pa_reader_from_context(context.ptr))
+        let base = try unsafe guardNotNull(c2pa_reader_from_context(context.ptr))
         // The null check sits outside the closure because `Data.withUnsafeBytes` erases the
         // type of an error thrown inside it.
-        let reader = try guardNotNull(manifest.withUnsafeBytes { buf in
-            c2pa_reader_with_manifest_data_and_stream(
+        let reader = try unsafe guardNotNull(manifest.withUnsafeBytes { buf in
+            unsafe c2pa_reader_with_manifest_data_and_stream(
                 base,
                 format,
                 stream.rawPtr,
@@ -125,7 +126,7 @@ public final class Reader {
                 UInt(manifest.count)
             )
         })
-        self.init(adopting: reader, context: context)
+        unsafe self.init(adopting: reader, context: context)
     }
 
     /// Creates a reader from separate manifest data and media stream.
@@ -144,7 +145,7 @@ public final class Reader {
         try self.init(context: C2PAContext(), format: format, stream: stream, manifest: manifest)
     }
 
-    deinit { _ = c2pa_free(ptr) }
+    deinit { _ = unsafe c2pa_free(ptr) }
 
     /// Returns the manifest data as a JSON string.
     ///
@@ -157,7 +158,7 @@ public final class Reader {
     ///
     /// - SeeAlso: ``detailedJSON()``
     public func json() throws(C2PAError) -> String {
-        try stringFromC(c2pa_reader_json(ptr))
+        try unsafe stringFromC(c2pa_reader_json(ptr))
     }
 
     /// Returns detailed manifest data as a JSON string.
@@ -186,7 +187,7 @@ public final class Reader {
     ///
     /// - SeeAlso: ``json()``
     public func detailedJSON() throws(C2PAError) -> String {
-        try stringFromC(c2pa_reader_detailed_json(ptr))
+        try unsafe stringFromC(c2pa_reader_detailed_json(ptr))
     }
 
     /// Returns the manifest as a crJSON string.
@@ -201,7 +202,7 @@ public final class Reader {
     ///
     /// - SeeAlso: ``json()``, ``detailedJSON()``
     public func crJSON() throws(C2PAError) -> String {
-        try stringFromC(c2pa_reader_crjson(ptr))
+        try unsafe stringFromC(c2pa_reader_crjson(ptr))
     }
 
     /// Returns the remote URL where the manifest is hosted, if available.
@@ -226,11 +227,11 @@ public final class Reader {
     ///
     /// - SeeAlso: ``isEmbedded()``
     public func remote() -> URL? {
-        guard let cString = c2pa_reader_remote_url(ptr) else {
+        guard let cString = unsafe c2pa_reader_remote_url(ptr) else {
             return nil
         }
-        defer { _ = c2pa_free(cString) }
-        return URL(string: String(cString: cString))
+        defer { _ = unsafe c2pa_free(cString) }
+        return unsafe URL(string: String(cString: cString))
     }
 
     /// Returns whether the manifest is embedded in the media file.
@@ -254,7 +255,7 @@ public final class Reader {
     ///
     /// - SeeAlso: ``remote()``
     public func isEmbedded() -> Bool {
-        c2pa_reader_is_embedded(ptr)
+        unsafe c2pa_reader_is_embedded(ptr)
     }
 
     /// Extracts a resource from the manifest to a stream.
@@ -268,7 +269,7 @@ public final class Reader {
     ///
     /// - Throws: ``C2PAError`` if the resource cannot be found or extracted.
     public func resource(uri: String, to dest: Stream) throws(C2PAError) {
-        _ = try guardNonNegative(
+        _ = try unsafe guardNonNegative(
             c2pa_reader_resource_to_stream(ptr, uri, dest.rawPtr)
         )
     }
@@ -278,7 +279,7 @@ public final class Reader {
     /// - Returns: An array of supported MIME type strings (e.g. `"image/jpeg"`).
     public static var supportedMimeTypes: [String] {
         var count: UInt = 0
-        let ptr = c2pa_reader_supported_mime_types(&count)
-        return stringArrayFromC(ptr, count: Int(count))
+        let ptr = unsafe c2pa_reader_supported_mime_types(&count)
+        return unsafe stringArrayFromC(ptr, count: Int(count))
     }
 }

@@ -77,6 +77,7 @@ public struct StreamOptions: OptionSet, Sendable {
 /// ```
 ///
 /// - SeeAlso: ``Reader``, ``Builder``
+@safe
 public final class Stream {
     /// A closure that reads data from the stream into a buffer.
     ///
@@ -107,6 +108,8 @@ public final class Stream {
     /// - Returns: 0 on success, or -1 on error.
     public typealias Flusher = () -> Int
 
+    // Safe to hold: the pointers these closures take only exist while one is being called.
+    @safe
     private final class StreamProvider {
         let r: Reader?
         let s: Seeker?
@@ -117,38 +120,38 @@ public final class Stream {
         var fileHandleBox: AnyObject?
 
         init(r: Reader?, s: Seeker?, w: Writer?, f: Flusher?, fileHandleBox: AnyObject? = nil) {
-            self.r = r
+            unsafe self.r = unsafe r
             self.s = s
-            self.w = w
+            unsafe self.w = unsafe w
             self.f = f
             self.fileHandleBox = fileHandleBox
         }
     }
 
     private static let cRead: ReadCallback = { ctx, data, len in
-        guard let ctx, let data else { return -1 }
-        let b = Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
-        guard let r = b.r else { return -1 }
-        return r(data, Int(len))
+        guard let ctx = unsafe ctx, let data = unsafe data else { return -1 }
+        let b = unsafe Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
+        guard let r = unsafe b.r else { return -1 }
+        return unsafe r(data, Int(len))
     }
 
     private static let cSeek: SeekCallback = { ctx, off, mode in
-        guard let ctx else { return -1 }
-        let b = Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
+        guard let ctx = unsafe ctx else { return -1 }
+        let b = unsafe Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
         guard let s = b.s else { return -1 }
         return s(Int(off), mode)
     }
 
     private static let cWrite: WriteCallback = { ctx, data, len in
-        guard let ctx, let data else { return -1 }
-        let b = Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
-        guard let w = b.w else { return -1 }
-        return w(data, Int(len))
+        guard let ctx = unsafe ctx, let data = unsafe data else { return -1 }
+        let b = unsafe Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
+        guard let w = unsafe b.w else { return -1 }
+        return unsafe w(data, Int(len))
     }
 
     private static let cFlush: FlushCallback = { ctx in
-        guard let ctx else { return -1 }
-        let b = Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
+        guard let ctx = unsafe ctx else { return -1 }
+        let b = unsafe Unmanaged<StreamProvider>.fromOpaque(ctx).takeUnretainedValue()
         return b.f?() ?? 0
     }
 
@@ -157,10 +160,10 @@ public final class Stream {
     private let streamPtr: UnsafeMutablePointer<C2paStream>
 
     private init(streamProvider: StreamProvider) {
-        streamProviderRef = .passRetained(streamProvider)
-        contextPtr = asStreamCtx(streamProviderRef.toOpaque())
+        unsafe streamProviderRef = unsafe .passRetained(streamProvider)
+        unsafe contextPtr = unsafe asStreamCtx(streamProviderRef.toOpaque())
 
-        streamPtr = c2pa_create_stream(
+        unsafe streamPtr = unsafe c2pa_create_stream(
             contextPtr,
             streamProvider.r != nil ? Stream.cRead : nil,
             streamProvider.s != nil ? Stream.cSeek : nil,
@@ -204,7 +207,7 @@ public final class Stream {
         write: Writer? = nil,
         flush: Flusher? = nil
     ) throws(C2PAError) {
-        self.init(streamProvider: StreamProvider(r: read, s: seek, w: write, f: flush))
+        unsafe self.init(streamProvider: StreamProvider(r: read, s: seek, w: write, f: flush))
     }
 
     /// Creates a read-only stream from in-memory data.
@@ -220,13 +223,13 @@ public final class Stream {
     ///   `Data` object after creating the stream will not affect the stream.
     public convenience init(data: Data) throws(C2PAError) {
         var cursor = 0
-        let streamProvider = StreamProvider(
+        let streamProvider = unsafe StreamProvider(
             r: { buffer, count in
                 let remain = data.count - cursor
                 guard remain > 0 else { return 0 }
                 let n = Swift.min(remain, count)
-                _ = data.withUnsafeBytes { // Silence "unused result" warning
-                    memcpy(buffer, $0.baseAddress!.advanced(by: cursor), n)
+                _ = unsafe data.withUnsafeBytes { // Silence "unused result" warning
+                    unsafe memcpy(buffer, $0.baseAddress!.advanced(by: cursor), n)
                 }
                 cursor += n
                 return n
@@ -246,12 +249,12 @@ public final class Stream {
     }
 
     deinit {
-        c2pa_release_stream(streamPtr)
-        streamProviderRef.release()
+        unsafe c2pa_release_stream(streamPtr)
+        unsafe streamProviderRef.release()
     }
 
     // raw C pointer (internal)
-    var rawPtr: UnsafeMutablePointer<C2paStream> { streamPtr }
+    var rawPtr: UnsafeMutablePointer<C2paStream> { unsafe streamPtr }
 }
 
 // MARK: - File-based stream helper ------------------------------------------
@@ -299,18 +302,18 @@ public extension Stream {
         let flusher: Flusher?
 
         if write {
-            writer = Stream.writer { try fhBox.fh.write(contentsOf: $0) }
+            unsafe writer = unsafe Stream.writer { try fhBox.fh.write(contentsOf: $0) }
             flusher = Stream.flusher { try fhBox.fh.synchronize() }
         } else {
-            writer = nil
+            unsafe writer = nil
             flusher = nil
         }
 
-        self.init(streamProvider: .init(
+        unsafe self.init(streamProvider: .init(
             r: { buffer, count in
                 let data = (try? fhBox.fh.read(upToCount: count)) ?? Data()
 
-                data.copyBytes(
+                unsafe data.copyBytes(
                     to: buffer.assumingMemoryBound(to: UInt8.self),
                     count: data.count
                 )
@@ -349,7 +352,7 @@ public extension Stream {
                     return -1
                 }
             },
-            w: writer,
+            w: unsafe writer,
             f: flusher,
             fileHandleBox: fhBox
         ))
@@ -361,7 +364,7 @@ extension Stream {
     static func writer(_ write: @escaping (Data) throws -> Void) -> Writer {
         return { buffer, count in
             do {
-                try write(Data(bytes: buffer, count: count))
+                try unsafe write(Data(bytes: buffer, count: count))
 
                 return count
             } catch {

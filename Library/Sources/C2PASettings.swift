@@ -42,13 +42,14 @@ import Foundation
 /// ```
 ///
 /// - SeeAlso: ``Signer``, ``C2PASettingsDefinition``
+@safe
 public final class C2PASettings {
     private var settingsString: String
     private var format: String
     private let ptr: UnsafeMutablePointer<C2paSettings>
 
     /// The native settings handle, used to configure a ``C2PAContext``.
-    var rawPtr: UnsafeMutablePointer<C2paSettings> { ptr }
+    var rawPtr: UnsafeMutablePointer<C2paSettings> { unsafe ptr }
 
     /// Creates settings from a JSON string.
     ///
@@ -57,7 +58,7 @@ public final class C2PASettings {
     public init(json: String) throws(C2PAError) {
         self.settingsString = json
         self.format = "json"
-        self.ptr = try Self.makeHandle(from: json, format: "json")
+        unsafe self.ptr = try unsafe Self.makeHandle(from: json, format: "json")
     }
 
     /// Creates settings from a TOML string.
@@ -67,7 +68,7 @@ public final class C2PASettings {
     public init(toml: String) throws(C2PAError) {
         self.settingsString = toml
         self.format = "toml"
-        self.ptr = try Self.makeHandle(from: toml, format: "toml")
+        unsafe self.ptr = try unsafe Self.makeHandle(from: toml, format: "toml")
     }
 
     /// Creates settings from a type-safe ``C2PASettingsDefinition``.
@@ -83,19 +84,19 @@ public final class C2PASettings {
         let json = try C2PAJson.encode(definition)
         self.settingsString = json
         self.format = "json"
-        self.ptr = try Self.makeHandle(from: json, format: "json")
+        unsafe self.ptr = try unsafe Self.makeHandle(from: json, format: "json")
     }
 
     // No type-specific c2pa_settings_free exists; c2pa_free is the documented
     // general-purpose free and returns an int we intentionally discard.
-    deinit { _ = c2pa_free(ptr) }
+    deinit { _ = unsafe c2pa_free(ptr) }
 
     /// Loads additional JSON settings, merging with existing configuration.
     ///
     /// - Parameter json: A JSON string containing C2PA settings to merge.
     /// - Throws: ``C2PAError`` if the JSON is invalid.
     public func load(json: String) throws(C2PAError) {
-        try Self.applyString(json, format: "json", to: ptr)
+        try unsafe Self.applyString(json, format: "json", to: ptr)
         self.settingsString = json
         self.format = "json"
     }
@@ -105,7 +106,7 @@ public final class C2PASettings {
     /// - Parameter toml: A TOML string containing C2PA settings to merge.
     /// - Throws: ``C2PAError`` if the TOML is invalid.
     public func load(toml: String) throws(C2PAError) {
-        try Self.applyString(toml, format: "toml", to: ptr)
+        try unsafe Self.applyString(toml, format: "toml", to: ptr)
         self.settingsString = toml
         self.format = "toml"
     }
@@ -118,7 +119,7 @@ public final class C2PASettings {
     ///   error if the definition cannot be encoded as JSON.
     public func load(definition: C2PASettingsDefinition) throws {
         let json = try C2PAJson.encode(definition)
-        try Self.applyString(json, format: "json", to: ptr)
+        try unsafe Self.applyString(json, format: "json", to: ptr)
         self.settingsString = json
         self.format = "json"
     }
@@ -166,7 +167,7 @@ public final class C2PASettings {
             throw C2PAError.utf8
         }
 
-        try Self.applyString(updatedString, format: "json", to: ptr)
+        try unsafe Self.applyString(updatedString, format: "json", to: ptr)
         self.settingsString = updatedString
     }
 
@@ -179,14 +180,14 @@ public final class C2PASettings {
         from string: String,
         format: String
     ) throws(C2PAError) -> UnsafeMutablePointer<C2paSettings> {
-        let handle = try guardNotNull(c2pa_settings_new())
+        let handle = try unsafe guardNotNull(c2pa_settings_new())
         do {
-            try applyString(string, format: format, to: handle)
+            try unsafe applyString(string, format: format, to: handle)
         } catch {
-            _ = c2pa_free(handle)
+            _ = unsafe c2pa_free(handle)
             throw error
         }
-        return handle
+        return unsafe handle
     }
 
     /// Applies a settings string in the given format to a native handle.
@@ -197,9 +198,9 @@ public final class C2PASettings {
     ) throws(C2PAError) {
         // The check sits outside the closures because `String.withCString` erases the type of
         // an error thrown inside it.
-        let result = string.withCString { settingsPtr in
-            format.withCString { formatPtr in
-                c2pa_settings_update_from_string(handle, settingsPtr, formatPtr)
+        let result = unsafe string.withCString { settingsPtr in
+            unsafe format.withCString { formatPtr in
+                unsafe c2pa_settings_update_from_string(handle, settingsPtr, formatPtr)
             }
         }
         guard result == 0 else {
