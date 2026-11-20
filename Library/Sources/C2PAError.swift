@@ -90,46 +90,46 @@ public enum C2PAError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .api(let message):
-            return "C2PA API error: \(message)"
+            "C2PA API error: \(message)"
 
         case .nilPointer:
-            return "Unexpected NULL pointer"
+            "Unexpected NULL pointer"
 
         case .utf8:
-            return "Invalid UTF-8 from C2PA"
+            "Invalid UTF-8 from C2PA"
 
         case .negative(let value):
-            return "C2PA negative status \(value)"
+            "C2PA negative status \(value)"
 
         case .ed25519NotSupported:
-            return "Ed25519 not supported by Keychain"
+            "Ed25519 not supported by Keychain"
 
         case .keySearchFailed(let tag, let status, let isSecureEnclave):
-            return "Failed to find key '\(tag)' in \(isSecureEnclave ? "Secure Enclave" : "keychain"): \(status)"
+            "Failed to find key '\(tag)' in \(isSecureEnclave ? "Secure Enclave" : "keychain"): \(status)"
 
         case .unsupportedAlgorithm(let algorithm, let isSecureEnclave):
-            return "\(isSecureEnclave ? "Secure Enclave key" : "Key") doesn't support algorithm \(algorithm)"
+            "\(isSecureEnclave ? "Secure Enclave key" : "Key") doesn't support algorithm \(algorithm)"
 
         case .signingFailed(let error, let isSecureEnclave):
-            return "\(isSecureEnclave ? "Secure Enclave signing" : "Signing") failed\(error != nil ? ": \(error!)" : "")"
+            "\(isSecureEnclave ? "Secure Enclave signing" : "Signing") failed\(error != nil ? ": \(error!)" : "")"
 
         case .accessControlCreationFailed:
-            return "Failed to create access control"
+            "Failed to create access control"
 
         case .keyCreationFailed(let error, let isSecureEnclave):
-            return "Failed to create \(isSecureEnclave ? "Secure Enclave" : "") key\(error != nil ? ": \(error!)" : "")"
+            "Failed to create \(isSecureEnclave ? "Secure Enclave" : "") key\(error != nil ? ": \(error!)" : "")"
 
         case .publicKeyExtractionFailed:
-            return "Failed to extract public key"
+            "Failed to extract public key"
 
         case .publicKeyExportFailed(let error):
-            return "Failed to export public key\(error != nil ? ": \(error!)" : "")"
+            "Failed to export public key\(error != nil ? ": \(error!)" : "")"
 
         case .asyncSigningFailed:
-            return "Async signing operation failed"
+            "Async signing operation failed"
 
         case .manifestValidationFailed(let result):
-            return "Manifest validation failed: \(result.errors.joined(separator: "; "))"
+            "Manifest validation failed: \(result.errors.joined(separator: "; "))"
         }
     }
 }
