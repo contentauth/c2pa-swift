@@ -118,13 +118,13 @@ public final class C2PASettings {
     /// - Parameters:
     ///   - value: The value to set: a `String`, `Bool`, `Int`, `Double`, or an array of
     ///     strings. To set a whole object, use ``load(json:)`` instead.
-    ///   - path: A dot-separated path (e.g., `"builder.thumbnail.format"`). A path that
-    ///     names no setting is ignored, as unknown keys are when loading settings.
+    ///   - path: A dot-separated path (e.g., `"builder.thumbnail.format"`). A well-formed
+    ///     path that names no setting is ignored, as unknown keys are when loading settings.
     ///
-    /// - Throws: ``C2PAError`` if the path is empty, if the value has no JSON
-    ///   representation, is null or is an object, or if it is the wrong type for the
-    ///   setting at `path`. Serializing the value can also throw the underlying
-    ///   `JSONSerialization` error.
+    /// - Throws: ``C2PAError`` if the path is empty or has an empty segment (a leading,
+    ///   trailing or doubled dot), if the value has no JSON representation, is null or is
+    ///   an object, or if it is the wrong type for the setting at `path`. Serializing the
+    ///   value can also throw the underlying `JSONSerialization` error.
     ///
     /// ## Example
     ///
@@ -136,26 +136,27 @@ public final class C2PASettings {
         guard !path.isEmpty else {
             throw C2PAError.api("Path must not be empty")
         }
+        // The native call splits the path on "." and keeps empty segments, so a leading or
+        // doubled dot would store the value under an empty key and report success without
+        // changing a setting.
+        let segments = path.split(separator: ".", omittingEmptySubsequences: false)
+        guard !segments.contains(where: \.isEmpty) else {
+            throw C2PAError.api("Path must not contain empty segments: \(path)")
+        }
 
-        // The native call takes the value as JSON text. It is wrapped in an array because
-        // JSONSerialization only accepts a collection at the top level, and checked first
-        // because an unencodable value raises an Objective-C exception, not a Swift error.
+        // The native call takes the value as JSON text. Validity is checked on the value
+        // wrapped in an array, because isValidJSONObject only accepts a collection at the
+        // top level, and it is checked at all because an unencodable value raises an
+        // Objective-C exception, not a Swift error.
         guard JSONSerialization.isValidJSONObject([value]) else {
             throw C2PAError.api("Cannot encode a value of type \(type(of: value)) as JSON")
         }
-        let wrapped = try JSONSerialization.data(withJSONObject: [value])
-        guard let array = String(data: wrapped, encoding: .utf8) else {
+        let encoded = try JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+        guard let json = String(data: encoded, encoding: .utf8) else {
             throw C2PAError.utf8
         }
-        let json = String(array.dropFirst().dropLast())
 
-        try unsafe path.withCString { pathPtr in
-            try unsafe json.withCString { valuePtr in
-                guard unsafe c2pa_settings_set_value(ptr, pathPtr, valuePtr) == 0 else {
-                    throw C2PAError.api(lastC2PAError())
-                }
-            }
-        }
+        _ = try unsafe guardNonNegative(Int64(c2pa_settings_set_value(ptr, path, json)))
     }
 
     // MARK: - Private

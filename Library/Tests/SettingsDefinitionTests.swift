@@ -351,6 +351,22 @@ import Testing
         #expect(try sign().signatureInfo()["alg"] as? String == "Es256")
     }
 
+    /// Left to the native call, a leading or doubled dot stores the value under
+    /// an empty key, changes no setting and reports success. The message pins
+    /// each throw to the wrapper's own check.
+    @Test(arguments: [".", ".verify.verify_after_reading", "verify..verify_after_reading", "verify.verify_after_reading."])
+    func c2paSettingsSetValueRejectsEmptyPathSegments(path: String) throws {
+        let settings = try C2PASettings(json: #"{"version": 1}"#)
+        let error = try #require(throws: C2PAError.self) {
+            try settings.setValue(true, forPath: path)
+        }
+        guard case .api(let message) = error else {
+            Issue.record("expected .api, got \(error)")
+            return
+        }
+        #expect(message.contains("empty segments"), "message: \(message)")
+    }
+
     /// JSONSerialization raises an Objective-C exception for a value it cannot
     /// encode, so setValue has to turn it away first.
     @Test func c2paSettingsSetValueRejectsUnencodableValue() throws {
