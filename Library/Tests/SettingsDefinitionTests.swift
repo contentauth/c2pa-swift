@@ -319,4 +319,51 @@ import Testing
         }
         #expect(message == "Path must not be empty")
     }
+
+    /// The value goes to the native settings, so it works on settings loaded
+    /// from TOML. The signer is declared with an algorithm the test key cannot
+    /// sign with: signing succeeds only once es256 has reached the native
+    /// settings and the rest of the signer section came through intact.
+    @Test func c2paSettingsSetValueOnTOML() throws {
+        let certs = try Fixtures.certsPEM()
+        let key = try Fixtures.privateKeyPEM()
+        let settings = try C2PASettings(toml: #"""
+            version = 1
+
+            [signer.local]
+            alg = "es384"
+            sign_cert = """
+            \#(certs)"""
+            private_key = """
+            \#(key)"""
+            """#)
+
+        func sign() throws -> ManifestStore {
+            let builder = try Builder(context: C2PAContext(settings: settings), manifestJSON: Fixtures.createdManifestJSON())
+            return try Fixtures.signAndReadWithContextSigner(builder)
+        }
+
+        // Were this to sign, the success after setValue would prove nothing.
+        #expect(throws: C2PAError.self, "signed with an algorithm the test key does not support") {
+            try sign()
+        }
+        try settings.setValue("es256", forPath: "signer.local.alg")
+        #expect(try sign().signatureInfo()["alg"] as? String == "Es256")
+    }
+
+    /// JSONSerialization raises an Objective-C exception for a value it cannot
+    /// encode, so setValue has to turn it away first.
+    @Test func c2paSettingsSetValueRejectsUnencodableValue() throws {
+        let settings = try C2PASettings(json: #"{"version": 1}"#)
+        #expect(throws: C2PAError.self) {
+            try settings.setValue(Date(), forPath: "verify.verify_after_reading")
+        }
+    }
+
+    @Test func c2paSettingsSetValueRejectsNull() throws {
+        let settings = try C2PASettings(json: #"{"version": 1}"#)
+        #expect(throws: C2PAError.self) {
+            try settings.setValue(NSNull(), forPath: "verify.verify_after_reading")
+        }
+    }
 }
