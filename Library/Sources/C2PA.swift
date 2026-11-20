@@ -43,8 +43,8 @@ public enum C2PA {
     ///
     /// - Returns: A JSON string containing the C2PA manifest data.
     ///
-    /// - Throws: ``C2PAError`` if the file cannot be read, the type is unknown,
-    ///   or it contains no valid manifest.
+    /// - Throws: ``C2PAError`` if the type is unknown or the file contains no valid
+    ///   manifest, or the underlying file error if the file cannot be opened.
     ///
     /// ## Example
     ///
@@ -69,8 +69,9 @@ public enum C2PA {
     ///   - manifestJSON: A JSON string defining the C2PA manifest structure and assertions.
     ///   - signerInfo: The signing credentials including certificate chain and private key.
     ///
-    /// - Throws: ``C2PAError`` if signing fails due to invalid inputs, I/O errors,
-    ///   an unknown file type, or cryptographic issues.
+    /// - Throws: ``C2PAError`` if signing fails due to invalid inputs, an unknown file
+    ///   type, or cryptographic issues, or the underlying file error if the source cannot
+    ///   be opened or the destination cannot be created.
     ///
     /// - Note: For advanced scenarios (hardware-backed keys, streaming), use
     ///   ``Builder`` with a ``Signer`` instance directly.

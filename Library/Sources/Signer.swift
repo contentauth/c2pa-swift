@@ -82,7 +82,7 @@ public final class Signer {
     /// longer owns.
     ///
     /// - Throws: ``C2PAError`` if this signer was consumed.
-    func livePtr() throws -> UnsafeMutablePointer<C2paSigner> {
+    func livePtr() throws(C2PAError) -> UnsafeMutablePointer<C2paSigner> {
         guard !consumed else {
             throw C2PAError.api(
                 "Signer was consumed by another owner (a C2PAContext or withCawgIdentity) and cannot be reused")
@@ -96,7 +96,7 @@ public final class Signer {
     /// this instance no longer frees the signer, and every later use throws.
     ///
     /// - Throws: ``C2PAError`` if this signer was already consumed.
-    func consume() throws -> UnsafeMutablePointer<C2paSigner> {
+    func consume() throws(C2PAError) -> UnsafeMutablePointer<C2paSigner> {
         let live = try livePtr()
         consumed = true
         return live
@@ -125,9 +125,10 @@ public final class Signer {
         privateKeyPEM: String,
         algorithm: SigningAlgorithm,
         tsa: URL? = nil
-    ) throws {
-        var raw: UnsafeMutablePointer<C2paSigner>!
-        try withSignerInfo(
+    ) throws(C2PAError) {
+        // The null check sits outside the closure because `String.withCString` erases the
+        // type of an error thrown inside it.
+        let raw = withSignerInfo(
             algorithm: algorithm.rawValue,
             cert: certsPEM,
             key: privateKeyPEM,
@@ -138,9 +139,9 @@ public final class Signer {
                 sign_cert: certPtr,
                 private_key: keyPtr,
                 ta_url: tsaPtr)
-            raw = try guardNotNull(c2pa_signer_from_info(&info))
+            return c2pa_signer_from_info(&info)
         }
-        self.init(ptr: raw)
+        self.init(ptr: try guardNotNull(raw))
     }
 
     /// Creates a signer from a ``SignerInfo`` struct.
@@ -153,7 +154,7 @@ public final class Signer {
     /// - Throws: ``C2PAError`` if the credentials are invalid or incompatible.
     ///
     /// - SeeAlso: ``SignerInfo``
-    public convenience init(info: SignerInfo) throws {
+    public convenience init(info: SignerInfo) throws(C2PAError) {
         try self.init(
             certsPEM: info.certificatePEM,
             privateKeyPEM: info.privateKeyPEM,

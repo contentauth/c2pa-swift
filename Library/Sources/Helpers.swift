@@ -16,7 +16,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 @inline(__always)
-func stringFromC(_ p: UnsafeMutablePointer<CChar>?) throws -> String {
+func stringFromC(_ p: UnsafeMutablePointer<CChar>?) throws(C2PAError) -> String {
     guard let p else { throw C2PAError.api(lastC2PAError()) }
     defer { _ = c2pa_free(p) }
     guard let s = String(validatingCString: p) else { throw C2PAError.utf8 }
@@ -41,14 +41,14 @@ func setLastC2PAError(_ message: String) {
 }
 
 @inline(__always)
-func guardNotNull<T>(_ p: UnsafeMutablePointer<T>?) throws -> UnsafeMutablePointer<T> {
+func guardNotNull<T>(_ p: UnsafeMutablePointer<T>?) throws(C2PAError) -> UnsafeMutablePointer<T> {
     if let p { return p }
     throw C2PAError.api(lastC2PAError())
 }
 
 @inline(__always)
 @discardableResult
-func guardNonNegative(_ v: Int64) throws -> Int64 {
+func guardNonNegative(_ v: Int64) throws(C2PAError) -> Int64 {
     if v < 0 { throw C2PAError.api(lastC2PAError()) }
     return v
 }
@@ -145,7 +145,7 @@ func withCStringArray<R>(
 /// - Parameter url: The file URL whose extension determines the MIME type.
 /// - Returns: The preferred MIME type (e.g. `"image/jpeg"`).
 /// - Throws: ``C2PAError`` if the extension maps to no known type.
-func inferredMIMEType(for url: URL) throws -> String {
+func inferredMIMEType(for url: URL) throws(C2PAError) -> String {
     guard let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType else {
         throw C2PAError.api("Unsupported or unknown file type for extension '\(url.pathExtension)'")
     }
