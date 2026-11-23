@@ -102,6 +102,55 @@ import Testing
         }
     }
 
+    /// c2pa-rs names the variants in lowercase and gives create its source type
+    /// directly. Any other shape is rejected when the settings load.
+    @Test func intentWireForms() throws {
+        #expect(
+            try JSONValue(encoding: SettingsIntent.create(digitalCapture)) == .object(["create": .string(digitalCapture)]))
+        #expect(try JSONValue(encoding: SettingsIntent.edit) == .string("edit"))
+        #expect(try JSONValue(encoding: SettingsIntent.update) == .string("update"))
+    }
+
+    /// c2pa-rs lowercases an intent string before matching it.
+    @Test(arguments: ["edit", "Edit", "EDIT"])
+    func intentStringDecodesInAnyCase(spelling: String) throws {
+        #expect(try C2PAJson.decode(SettingsIntent.self, from: "\"\(spelling)\"") == .edit)
+    }
+
+    /// c2pa-rs lowercases these four values too before matching them, so
+    /// settings it accepts must decode here.
+    @Test func enumValuesDecodeInAnyCase() throws {
+        let thumbnail = try C2PAJson.decode(ThumbnailSettings.self, from: #"{"format": "PNG", "quality": "High"}"#)
+        #expect(thumbnail.format == .png)
+        #expect(thumbnail.quality == .high)
+        let timeStamp = try C2PAJson.decode(TimeStampSettings.self, from: #"{"fetch_scope": "Parent"}"#)
+        #expect(timeStamp.fetchScope == .parent)
+        let builder = try C2PAJson.decode(BuilderSettingsDefinition.self, from: #"{"certificate_status_fetch": "ALL"}"#)
+        #expect(builder.certificateStatusFetch == .all)
+
+        // Written back the way c2pa-rs writes them.
+        #expect(try JSONValue(encoding: thumbnail) == .object(["format": .string("png"), "quality": .string("high")]))
+        #expect(throws: DecodingError.self) {
+            try C2PAJson.decode(ThumbnailSettings.self, from: #"{"format": "bmp"}"#)
+        }
+        #expect(throws: DecodingError.self) {
+            try C2PAJson.decode(ThumbnailSettings.self, from: #"{"format": 1}"#)
+        }
+    }
+
+    /// The first is the shape earlier releases wrote for create, which c2pa-rs
+    /// rejects. None of these may decode to an intent.
+    @Test(arguments: [
+        #"{"Create":{"digital_source_type":"http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"}}"#,
+        #"{"create":{"digital_source_type":"http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"}}"#,
+        #""create""#,
+        #""delete""#,
+        "1"
+    ])
+    func intentRejectsOtherShapes(json: String) {
+        #expect(throws: DecodingError.self) { try C2PAJson.decode(SettingsIntent.self, from: json) }
+    }
+
     @Test func enumValues() {
         #expect([ThumbnailFormat.png, .jpeg, .gif, .webp, .tiff].map(\.rawValue) == ["png", "jpeg", "gif", "webp", "tiff"])
         #expect([ThumbnailQuality.low, .medium, .high].map(\.rawValue) == ["low", "medium", "high"])
@@ -137,12 +186,42 @@ import Testing
 
     @Test func trustSettings() throws {
         let trust = TrustSettings(
-            verifyTrustList: true,
-            userAnchors: "user-anchor-pem",
-            trustAnchors: "trust-anchor-pem",
-            trustConfig: "{\"trust\": true}",
-            allowedList: "allowed-list")
+            anchors: [
+                TrustAnchor(trustAnchors: "manifest-roots", trustUri: "https://example.com/list", allowedList: "leaf"),
+                TrustAnchor(trustAnchors: "tsa-roots", trustKind: .tsa),
+                TrustAnchor(
+                    trustAnchors: "cawg-roots", trustKind: .cawg, trustConfig: "1.3.6.1.5.5.7.3.4",
+                    trustedIcaIssuers: ["did:web:example.com"])
+            ],
+            trustConfig: "1.3.6.1.5.5.7.3.36",
+            useDefaultEkus: false)
         #expect(try C2PAJson.decode(TrustSettings.self, from: C2PAJson.encode(trust)) == trust)
+    }
+
+    /// c2pa-rs rejects an anchor without trust_kind, so the default is written out.
+    @Test func trustAnchorDefaultsToManifestKind() throws {
+        let anchor = TrustAnchor(trustAnchors: "roots")
+        #expect(anchor.trustKind == .manifest)
+        #expect(try JSONValue(encoding: anchor)["trust_kind"] == .string("manifest"))
+    }
+
+    /// c2pa-rs ignores each of these keys where earlier releases wrote them.
+    /// allowed_list remains, but only inside an anchor.
+    @Test func trustWritesNoRemovedKeys() throws {
+        let definition = C2PASettingsDefinition(
+            trust: TrustSettings(anchors: [TrustAnchor(trustAnchors: "roots", allowedList: "leaf")]))
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(definition.toJSON().utf8)) as? [String: Any])
+        #expect(Set(object.keys) == ["trust"])
+        let trust = try #require(object["trust"] as? [String: Any])
+        #expect(Set(trust.keys) == ["anchors"])
+        let anchor = try #require((trust["anchors"] as? [[String: Any]])?.first)
+        #expect(Set(anchor.keys) == ["trust_anchors", "trust_kind", "allowed_list"])
+    }
+
+    @Test(arguments: [#"{"trust_kind":"manifest"}"#, #"{"trust_anchors":"roots"}"#, #"{"trust_anchors":"roots","trust_kind":"CAWG"}"#])
+    func trustAnchorRejectsWhatUpstreamRejects(json: String) {
+        #expect(throws: DecodingError.self) { try C2PAJson.decode(TrustAnchor.self, from: json) }
     }
 
     @Test func coreSettings() throws {
@@ -151,7 +230,14 @@ import Testing
             merkleTreeMaxProofs: 100,
             backingStoreMemoryThresholdInMb: 256,
             decodeIdentityAssertions: true,
-            allowedNetworkHosts: ["example.com", "cdn.example.com"])
+            allowedNetworkHosts: ["example.com", "cdn.example.com"],
+            allowRedirects: false,
+            preferCompressManifests: true,
+            maxDecompressedManifestSizeInMb: 16,
+            timeStampRequestAttempts: 2,
+            timeStampRequestTimeoutInMs: 5_000,
+            timeStampRetryDelayInMs: 250,
+            httpRequestTimeoutInMs: 8_000)
         #expect(try C2PAJson.decode(CoreSettings.self, from: C2PAJson.encode(core)) == core)
     }
 
@@ -164,7 +250,10 @@ import Testing
             ocspFetch: true,
             remoteManifestFetch: false,
             skipIngredientConflictResolution: true,
-            strictV1Validation: false)
+            strictV1Validation: false,
+            ocspFetchShouldOverride: true,
+            maxManifestResponseSize: 1_048_576,
+            verifyAfterSignHash: true)
         #expect(try C2PAJson.decode(VerifySettings.self, from: C2PAJson.encode(verify)) == verify)
     }
 
@@ -185,14 +274,17 @@ import Testing
                 ],
                 autoCreatedAction: AutoActionSettings(enabled: true, sourceType: digitalCapture),
                 autoOpenedAction: AutoActionSettings(enabled: false),
-                autoPlacedAction: AutoActionSettings(enabled: true)),
+                autoPlacedAction: AutoActionSettings(enabled: true),
+                autoAllActionsIncluded: true),
             certificateStatusFetch: .all,
             certificateStatusShouldOverride: false,
             intent: .create(digitalCapture),
             createdAssertionLabels: ["c2pa.actions"],
             preferBoxHash: true,
             generateC2paArchive: false,
-            autoTimestampAssertion: TimeStampSettings(enabled: true, skipExisting: false, fetchScope: .all)
+            autoTimestampAssertion: TimeStampSettings(enabled: true, skipExisting: false, fetchScope: .all),
+            bmffHashExcludeFreeAndSkipBoxes: false,
+            ignoreIngredientErrors: true
         )
         let decoded = try C2PAJson.decode(BuilderSettingsDefinition.self, from: C2PAJson.encode(builder))
         #expect(decoded == builder)
@@ -205,13 +297,14 @@ import Testing
     @Test func fullDefinitionRoundTrip() throws {
         let definition = C2PASettingsDefinition(
             version: 1,
-            trust: TrustSettings(verifyTrustList: true),
-            cawgTrust: TrustSettings(verifyTrustList: false, userAnchors: "cawg-anchors"),
+            trust: TrustSettings(
+                anchors: [TrustAnchor(trustAnchors: "cawg-anchors", trustKind: .cawg)], useDefaultEkus: true),
             core: CoreSettings(merkleTreeChunkSizeInKb: 32, decodeIdentityAssertions: true),
             verify: VerifySettings(verifyAfterReading: true, strictV1Validation: false),
             builder: BuilderSettingsDefinition(vendor: "full-test", intent: .update),
             signer: .local(LocalSignerSettings(alg: "ps256", signCert: "cert-pem", privateKey: "key-pem", roles: ["signer", "validator"])),
-            cawgX509Signer: .remote(RemoteSignerSettings(url: "https://cawg.example.com", alg: "es256", signCert: "cawg-cert"))
+            cawgX509Signer: .remote(RemoteSignerSettings(url: "https://cawg.example.com", alg: "es256", signCert: "cawg-cert")),
+            softBinding: SoftBindingSettings(softBindingAlgorithms: ["com.example.watermark.1"])
         )
         let decoded = try C2PASettingsDefinition.fromJSON(definition.toJSON())
         #expect(decoded == definition)
@@ -221,7 +314,8 @@ import Testing
         }
         #expect(signer.roles == ["signer", "validator"])
         #expect(cawg.url == "https://cawg.example.com")
-        #expect(decoded.cawgTrust?.userAnchors == "cawg-anchors")
+        #expect(decoded.trust?.anchors?.first?.trustKind == .cawg)
+        #expect(decoded.softBinding?.softBindingAlgorithms == ["com.example.watermark.1"])
     }
 
     @Test func signerWithRoles() throws {
@@ -381,5 +475,163 @@ import Testing
         #expect(throws: C2PAError.self) {
             try settings.setValue(NSNull(), forPath: "verify.verify_after_reading")
         }
+    }
+
+    // MARK: - New keys reach the C layer
+
+    /// A definition with every modelled key set to a value c2pa-rs accepts.
+    static func everyKeyDefinition() throws -> C2PASettingsDefinition {
+        let root = try Fixtures.rootBundlePEM()
+        let leaf = try Fixtures.leafCertificatePEM()
+        let digitalCapture = DigitalSourceType.digitalCapture.rawValue
+        let generator = ClaimGeneratorInfoSettings(name: "TestApp", version: "1.0", operatingSystem: "arm64-apple-ios")
+        let autoAction = AutoActionSettings(enabled: true, sourceType: digitalCapture)
+        return C2PASettingsDefinition(
+            version: 1,
+            trust: TrustSettings(
+                anchors: [
+                    TrustAnchor(
+                        trustAnchors: root, trustKind: .manifest, trustUri: "https://example.com/trust-list",
+                        trustConfig: "1.3.6.1.5.5.7.3.36", allowedList: leaf,
+                        trustedIcaIssuers: ["did:web:example.com"]),
+                    TrustAnchor(trustAnchors: root, trustKind: .tsa),
+                    TrustAnchor(trustAnchors: root, trustKind: .cawg)
+                ],
+                trustConfig: "1.3.6.1.5.5.7.3.36",
+                useDefaultEkus: true),
+            core: CoreSettings(
+                merkleTreeChunkSizeInKb: 64,
+                merkleTreeMaxProofs: 5,
+                backingStoreMemoryThresholdInMb: 256,
+                decodeIdentityAssertions: true,
+                allowedNetworkHosts: ["*.example.com"],
+                allowRedirects: false,
+                preferCompressManifests: true,
+                maxDecompressedManifestSizeInMb: 16,
+                timeStampRequestAttempts: 2,
+                timeStampRequestTimeoutInMs: 500,
+                timeStampRetryDelayInMs: 10,
+                httpRequestTimeoutInMs: 500),
+            verify: VerifySettings(
+                verifyAfterReading: true,
+                verifyAfterSign: true,
+                verifyTrust: true,
+                verifyTimestampTrust: true,
+                ocspFetch: false,
+                remoteManifestFetch: false,
+                skipIngredientConflictResolution: false,
+                strictV1Validation: false,
+                ocspFetchShouldOverride: false,
+                maxManifestResponseSize: 1_048_576,
+                verifyAfterSignHash: true),
+            builder: BuilderSettingsDefinition(
+                vendor: "com.example",
+                claimGeneratorInfo: generator,
+                thumbnail: ThumbnailSettings(
+                    enabled: true, ignoreErrors: true, longEdge: 512, format: .jpeg, preferSmallestFormat: true,
+                    quality: .low),
+                actions: ActionsSettings(
+                    allActionsIncluded: true,
+                    templates: [
+                        ActionTemplateSettings(
+                            action: "c2pa.edited", softwareAgent: generator, softwareAgentIndex: 0,
+                            sourceType: digitalCapture, description: "Edited in TestApp")
+                    ],
+                    autoCreatedAction: autoAction,
+                    autoOpenedAction: autoAction,
+                    autoPlacedAction: autoAction,
+                    autoAllActionsIncluded: true),
+                certificateStatusFetch: .active,
+                certificateStatusShouldOverride: false,
+                intent: .create(digitalCapture),
+                createdAssertionLabels: ["c2pa.actions"],
+                preferBoxHash: true,
+                generateC2paArchive: true,
+                autoTimestampAssertion: TimeStampSettings(enabled: false, skipExisting: true, fetchScope: .parent),
+                bmffHashExcludeFreeAndSkipBoxes: false,
+                ignoreIngredientErrors: true),
+            signer: .local(
+                LocalSignerSettings(
+                    alg: "es256", signCert: try Fixtures.certsPEM(), privateKey: try Fixtures.privateKeyPEM(),
+                    tsaUrl: "http://tsa.example.com", referencedAssertions: ["c2pa.actions"],
+                    roles: ["cawg.creator"])),
+            cawgX509Signer: .remote(
+                RemoteSignerSettings(
+                    url: "https://signer.example.com", alg: "es256", signCert: try Fixtures.certsPEM(),
+                    tsaUrl: "http://tsa.example.com", referencedAssertions: ["c2pa.actions"],
+                    roles: ["cawg.creator"])),
+            softBinding: SoftBindingSettings(softBindingAlgorithms: ["com.example.watermark.1"]))
+    }
+
+    /// c2pa-rs refuses settings it cannot deserialize, so loading every key at
+    /// once catches a key whose value has the wrong shape. With the create
+    /// intent this failed before the intent was written the way c2pa-rs reads it.
+    @Test func everyKeyLoads() throws {
+        _ = try C2PASettings(definition: Self.everyKeyDefinition())
+    }
+
+    /// Shows the request settings are read: c2pa-rs validates this one.
+    @Test func zeroTimeStampAttemptsAreRejected() throws {
+        let definition = C2PASettingsDefinition(version: 1, core: CoreSettings(timeStampRequestAttempts: 0))
+        let error = try #require(throws: C2PAError.self) { try C2PASettings(definition: definition) }
+        #expect("\(error)".contains("time_stamp_request_attempts"), "error: \(error)")
+    }
+
+    // c2pa-rs ignores keys it does not know, so settings that merely load prove
+    // nothing about their names. These show an effect for each trust key: the
+    // validation state of an asset signed with the test certificate.
+
+    enum TrustCase: String, CaseIterable, CustomTestStringConvertible {
+        case noAnchors, manifestAnchor, timeStampAnchor, cawgAnchor, allowedListOnly, unrelatedExtendedKeyUsage
+
+        var testDescription: String { rawValue }
+
+        var expectedState: String {
+            switch self {
+            case .manifestAnchor, .allowedListOnly: "Trusted"
+            case .noAnchors, .timeStampAnchor, .cawgAnchor: "Valid"
+            case .unrelatedExtendedKeyUsage: "Invalid"
+            }
+        }
+
+        func trust() throws -> TrustSettings {
+            let root = try Fixtures.rootBundlePEM()
+            return switch self {
+            case .noAnchors:
+                TrustSettings()
+            case .manifestAnchor:
+                TrustSettings(anchors: [TrustAnchor(trustAnchors: root)])
+            case .timeStampAnchor:
+                TrustSettings(anchors: [TrustAnchor(trustAnchors: root, trustKind: .tsa)])
+            case .cawgAnchor:
+                TrustSettings(anchors: [TrustAnchor(trustAnchors: root, trustKind: .cawg)])
+            case .allowedListOnly:
+                // No root at all: the signing certificate itself is allowed.
+                TrustSettings(anchors: [TrustAnchor(trustAnchors: "", allowedList: try Fixtures.leafCertificatePEM())])
+            case .unrelatedExtendedKeyUsage:
+                // The root is trusted, but only a purpose the certificate lacks is accepted.
+                TrustSettings(
+                    anchors: [TrustAnchor(trustAnchors: root)], trustConfig: "1.2.3.4", useDefaultEkus: false)
+            }
+        }
+    }
+
+    @Test(arguments: TrustCase.allCases)
+    func trustSettingsDecideValidationState(trustCase: TrustCase) throws {
+        let settings = try C2PASettings(definition: C2PASettingsDefinition(version: 1, trust: trustCase.trust()))
+        let store = try Fixtures.signAndRead(
+            Builder(manifestJSON: Fixtures.createdManifestJSON()), readingWith: settings)
+        #expect(store.validationState == trustCase.expectedState, "validation status: \(store.validationCodes)")
+    }
+
+    /// The trust list a certificate chained to is named in the results by its URI.
+    @Test func trustListURIIsReported() throws {
+        let anchor = TrustAnchor(trustAnchors: try Fixtures.rootBundlePEM(), trustUri: "https://example.com/trust-list")
+        let settings = try C2PASettings(
+            definition: C2PASettingsDefinition(version: 1, trust: TrustSettings(anchors: [anchor])))
+        let store = try Fixtures.signAndRead(
+            Builder(manifestJSON: Fixtures.createdManifestJSON()), readingWith: settings)
+        let results = try #require(store.raw["validation_results"] as? [String: Any])
+        #expect(results["trustListUri"] as? String == "https://example.com/trust-list")
     }
 }
