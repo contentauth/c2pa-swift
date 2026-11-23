@@ -113,7 +113,7 @@ public enum ManifestValidator {
         warnings: inout [String]
     ) {
         // Title is required
-        if manifest.title.isEmpty {
+        if manifest.title?.isEmpty ?? true {
             errors.append("Manifest title is required")
         }
 
@@ -123,8 +123,9 @@ public enum ManifestValidator {
         }
 
         // Claim version
-        if manifest.claimVersion < recommendedClaimVersion {
-            warnings.append("Claim version \(manifest.claimVersion) is outdated; recommended version is \(recommendedClaimVersion)")
+        // An absent claim version means the current one.
+        if let claimVersion = manifest.claimVersion, claimVersion < recommendedClaimVersion {
+            warnings.append("Claim version \(claimVersion) is outdated; recommended version is \(recommendedClaimVersion)")
         }
     }
 

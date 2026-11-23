@@ -39,6 +39,7 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
         case claimGeneratorInfo = "claim_generator_info"
         case claimVersion = "claim_version"
         case format
+        case hashAlg = "hash_alg"
         case ingredients
         case instanceId = "instance_id"
         case label
@@ -57,11 +58,15 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
     /// Claim Generator Info is always required with at least one entry.
     public var claimGeneratorInfo: [ClaimGeneratorInfo]
 
-    /// The version of the claim. Defaults to 2 for C2PA 2.x spec compliance.
-    public var claimVersion: UInt8
+    /// The version of the claim. When absent, a C2PA 2.x claim is signed.
+    public var claimVersion: UInt8?
 
     /// The format of the source file as a MIME type.
     public var format: String
+
+    /// The hash algorithm for asset and assertion hashing: `sha256`, `sha384` or `sha512`.
+    /// When absent, `sha256` is used.
+    public var hashAlg: String?
 
     /// A list of ingredients.
     public var ingredients: [Ingredient]
@@ -74,7 +79,13 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
 
     /// Optional manifest metadata.
     @available(*, deprecated, message: "This will be deprecated in the future; not recommended to use.")
-    public var metadata: [Metadata]?
+    public var metadata: [Metadata]? {
+        get { storedMetadata }
+        set { storedMetadata = newValue }
+    }
+
+    /// Holds ``metadata``, so coding it does not go through the deprecated property.
+    private var storedMetadata: [Metadata]?
 
     /// A list of redactions -- URIs to redacted assertions.
     public var redactions: [String]?
@@ -83,7 +94,7 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
     public var thumbnail: ResourceRef?
 
     /// A human-readable title, generally source filename.
-    public var title: String
+    public var title: String?
 
     /// Optional prefix added to the generated manifest label (typically a reverse domain name).
     public var vendor: String?
@@ -95,8 +106,9 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
     /// - Parameters:
     ///   - assertions: A list of assertions.
     ///   - claimGeneratorInfo: Required claim generator info (at least one entry).
-    ///   - claimVersion: The claim version. Defaults to 2.
+    ///   - claimVersion: The claim version. When absent, a C2PA 2.x claim is signed.
     ///   - format: The MIME type of the source file.
+    ///   - hashAlg: The hash algorithm for asset and assertion hashing. When absent, `sha256` is used.
     ///   - ingredients: A list of ingredients.
     ///   - instanceId: Instance ID from XMP metadata.
     ///   - label: Pre-defined manifest label.
@@ -107,8 +119,9 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
     public init(
         assertions: [AssertionDefinition] = [],
         claimGeneratorInfo: [ClaimGeneratorInfo],
-        claimVersion: UInt8 = 2,
+        claimVersion: UInt8? = nil,
         format: String = "application/octet-stream",
+        hashAlg: String? = nil,
         ingredients: [Ingredient] = [],
         instanceId: String? = nil,
         label: String? = nil,
@@ -121,6 +134,7 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
         self.claimGeneratorInfo = claimGeneratorInfo
         self.claimVersion = claimVersion
         self.format = format
+        self.hashAlg = hashAlg
         self.ingredients = ingredients
         self.instanceId = instanceId
         self.label = label
@@ -128,6 +142,50 @@ public struct ManifestDefinition: Codable, CustomStringConvertible, Equatable {
         self.thumbnail = thumbnail
         self.title = title
         self.vendor = vendor
+    }
+
+    // MARK: - Codable
+
+    /// The format c2pa-rs assumes when a definition names none.
+    private static let defaultFormat = "application/octet-stream"
+
+    /// c2pa-rs requires no member of a manifest definition, so none is required
+    /// to decode one: an absent list is empty and an absent format is
+    /// `application/octet-stream`. A definition built here still takes a
+    /// title, which ``ManifestValidator`` requires.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        assertions = try container.decodeIfPresent([AssertionDefinition].self, forKey: .assertions) ?? []
+        claimGeneratorInfo =
+            try container.decodeIfPresent([ClaimGeneratorInfo].self, forKey: .claimGeneratorInfo) ?? []
+        claimVersion = try container.decodeIfPresent(UInt8.self, forKey: .claimVersion)
+        format = try container.decodeIfPresent(String.self, forKey: .format) ?? Self.defaultFormat
+        hashAlg = try container.decodeIfPresent(String.self, forKey: .hashAlg)
+        ingredients = try container.decodeIfPresent([Ingredient].self, forKey: .ingredients) ?? []
+        instanceId = try container.decodeIfPresent(String.self, forKey: .instanceId)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        storedMetadata = try container.decodeIfPresent([Metadata].self, forKey: .metadata)
+        redactions = try container.decodeIfPresent([String].self, forKey: .redactions)
+        thumbnail = try container.decodeIfPresent(ResourceRef.self, forKey: .thumbnail)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        vendor = try container.decodeIfPresent(String.self, forKey: .vendor)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(assertions, forKey: .assertions)
+        try container.encode(claimGeneratorInfo, forKey: .claimGeneratorInfo)
+        try container.encodeIfPresent(claimVersion, forKey: .claimVersion)
+        try container.encode(format, forKey: .format)
+        try container.encodeIfPresent(hashAlg, forKey: .hashAlg)
+        try container.encode(ingredients, forKey: .ingredients)
+        try container.encodeIfPresent(instanceId, forKey: .instanceId)
+        try container.encodeIfPresent(label, forKey: .label)
+        try container.encodeIfPresent(storedMetadata, forKey: .metadata)
+        try container.encodeIfPresent(redactions, forKey: .redactions)
+        try container.encodeIfPresent(thumbnail, forKey: .thumbnail)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(vendor, forKey: .vendor)
     }
 
     // MARK: - Factory Methods

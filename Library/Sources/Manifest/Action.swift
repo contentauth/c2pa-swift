@@ -34,6 +34,8 @@ public struct Action: Codable, Equatable {
         case changes
         case related
         case reason
+        case softwareAgentIndex
+        case description
     }
 
     /// The action name. Most probably a ``PredefinedAction``.
@@ -57,11 +59,20 @@ public struct Action: Codable, Equatable {
     /// Regions of interest describing what changed.
     public var changes: [RegionOfInterest]?
 
-    /// Related ingredient labels.
-    public var related: [String]?
+    /// Actions related to this one.
+    ///
+    /// To link an action to an ingredient, name the ingredient in the
+    /// `ingredientIds` entry of ``parameters`` instead.
+    public var related: [Action]?
 
     /// The reason for performing the action (e.g., "c2pa.PII.present").
     public var reason: String?
+
+    /// The 0-based index of the software agent in the `softwareAgents` list of the actions assertion.
+    public var softwareAgentIndex: Int?
+
+    /// A description of the action.
+    public var description: String?
 
     // MARK: - Computed Properties
 
@@ -90,8 +101,10 @@ public struct Action: Codable, Equatable {
     ///   - parameters: Additional information describing the action.
     ///   - when: The timestamp when the action was performed (ISO 8601 format).
     ///   - changes: Regions of interest describing what changed.
-    ///   - related: Related ingredient labels.
+    ///   - related: Actions related to this one.
     ///   - reason: The reason for performing the action.
+    ///   - softwareAgentIndex: The 0-based index of the software agent in the assertion's `softwareAgents` list.
+    ///   - description: A description of the action.
     public init(
         action: String,
         digitalSourceType: String? = nil,
@@ -99,8 +112,10 @@ public struct Action: Codable, Equatable {
         parameters: [String: AnyCodable]? = nil,
         when: String? = nil,
         changes: [RegionOfInterest]? = nil,
-        related: [String]? = nil,
-        reason: String? = nil
+        related: [Action]? = nil,
+        reason: String? = nil,
+        softwareAgentIndex: Int? = nil,
+        description: String? = nil
     ) {
         self.action = action
         self.digitalSourceType = digitalSourceType
@@ -110,6 +125,8 @@ public struct Action: Codable, Equatable {
         self.changes = changes
         self.related = related
         self.reason = reason
+        self.softwareAgentIndex = softwareAgentIndex
+        self.description = description
     }
 
     /// Creates an action with a string softwareAgent (v1 format).
@@ -121,8 +138,10 @@ public struct Action: Codable, Equatable {
     ///   - parameters: Additional information describing the action.
     ///   - when: The timestamp when the action was performed (ISO 8601 format).
     ///   - changes: Regions of interest describing what changed.
-    ///   - related: Related ingredient labels.
+    ///   - related: Actions related to this one.
     ///   - reason: The reason for performing the action.
+    ///   - softwareAgentIndex: The 0-based index of the software agent in the assertion's `softwareAgents` list.
+    ///   - description: A description of the action.
     public init(
         action: String,
         digitalSourceType: String? = nil,
@@ -130,8 +149,10 @@ public struct Action: Codable, Equatable {
         parameters: [String: AnyCodable]? = nil,
         when: String? = nil,
         changes: [RegionOfInterest]? = nil,
-        related: [String]? = nil,
-        reason: String? = nil
+        related: [Action]? = nil,
+        reason: String? = nil,
+        softwareAgentIndex: Int? = nil,
+        description: String? = nil
     ) {
         self.init(
             action: action,
@@ -141,7 +162,9 @@ public struct Action: Codable, Equatable {
             when: when,
             changes: changes,
             related: related,
-            reason: reason
+            reason: reason,
+            softwareAgentIndex: softwareAgentIndex,
+            description: description
         )
     }
 
@@ -154,8 +177,10 @@ public struct Action: Codable, Equatable {
     ///   - parameters: Additional information describing the action.
     ///   - when: The timestamp when the action was performed (ISO 8601 format).
     ///   - changes: Regions of interest describing what changed.
-    ///   - related: Related ingredient labels.
+    ///   - related: Actions related to this one.
     ///   - reason: The reason for performing the action.
+    ///   - softwareAgentIndex: The 0-based index of the software agent in the assertion's `softwareAgents` list.
+    ///   - description: A description of the action.
     public init(
         action: PredefinedAction,
         digitalSourceType: DigitalSourceType,
@@ -163,8 +188,10 @@ public struct Action: Codable, Equatable {
         parameters: [String: AnyCodable]? = nil,
         when: String? = nil,
         changes: [RegionOfInterest]? = nil,
-        related: [String]? = nil,
-        reason: String? = nil
+        related: [Action]? = nil,
+        reason: String? = nil,
+        softwareAgentIndex: Int? = nil,
+        description: String? = nil
     ) {
         self.init(
             action: action.rawValue,
@@ -174,7 +201,9 @@ public struct Action: Codable, Equatable {
             when: when,
             changes: changes,
             related: related,
-            reason: reason
+            reason: reason,
+            softwareAgentIndex: softwareAgentIndex,
+            description: description
         )
     }
 
@@ -187,8 +216,10 @@ public struct Action: Codable, Equatable {
     ///   - parameters: Additional information describing the action.
     ///   - when: The timestamp when the action was performed (ISO 8601 format).
     ///   - changes: Regions of interest describing what changed.
-    ///   - related: Related ingredient labels.
+    ///   - related: Actions related to this one.
     ///   - reason: The reason for performing the action.
+    ///   - softwareAgentIndex: The 0-based index of the software agent in the assertion's `softwareAgents` list.
+    ///   - description: A description of the action.
     public init(
         action: PredefinedAction,
         digitalSourceType: DigitalSourceType? = nil,
@@ -196,8 +227,10 @@ public struct Action: Codable, Equatable {
         parameters: [String: AnyCodable]? = nil,
         when: String? = nil,
         changes: [RegionOfInterest]? = nil,
-        related: [String]? = nil,
-        reason: String? = nil
+        related: [Action]? = nil,
+        reason: String? = nil,
+        softwareAgentIndex: Int? = nil,
+        description: String? = nil
     ) {
         let agentData = try? JSONEncoder().encode(softwareAgentInfo)
         let agentDict = agentData.flatMap {
@@ -211,7 +244,9 @@ public struct Action: Codable, Equatable {
             when: when,
             changes: changes,
             related: related,
-            reason: reason
+            reason: reason,
+            softwareAgentIndex: softwareAgentIndex,
+            description: description
         )
     }
 
@@ -226,5 +261,7 @@ public struct Action: Codable, Equatable {
             && lhs.changes == rhs.changes
             && lhs.related == rhs.related
             && lhs.reason == rhs.reason
+            && lhs.softwareAgentIndex == rhs.softwareAgentIndex
+            && lhs.description == rhs.description
     }
 }

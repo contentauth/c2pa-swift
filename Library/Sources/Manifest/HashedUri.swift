@@ -25,6 +25,10 @@ open class HashedUri: UriOrResource {
     }
 
     /// Byte string containing the hash value.
+    ///
+    /// It is written as a JSON array of numbers, which is how c2pa-rs takes
+    /// hash bytes. A ``Reader`` reports them as `b64'<base64>'`, and that form
+    /// is read too.
     open var hash: [UInt8]
 
     /// JUMBF URI reference
@@ -44,10 +48,35 @@ open class HashedUri: UriOrResource {
     public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        hash = try container.decode([UInt8].self, forKey: .hash)
+        hash = try Self.decodeHash(from: container)
         url = try container.decode(String.self, forKey: .url)
 
         try super.init(from: decoder)
+    }
+
+    /// Reads the hash from an array of byte values or from `b64'<base64>'`.
+    ///
+    /// A string without that wrapper is refused: c2pa-rs would take it as the
+    /// bytes of the string itself, which is never what a hash is.
+    private static func decodeHash(from container: KeyedDecodingContainer<CodingKeys>) throws -> [UInt8] {
+        if let bytes = try? container.decode([UInt8].self, forKey: .hash) {
+            return bytes
+        }
+        let prefix = "b64'"
+        let suffix = "'"
+        if let text = try? container.decode(String.self, forKey: .hash),
+           text.count >= prefix.count + suffix.count, text.hasPrefix(prefix), text.hasSuffix(suffix),
+           let data = Data(base64Encoded: String(text.dropFirst(prefix.count).dropLast(suffix.count))) {
+            return [UInt8](data)
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: .hash, in: container,
+            debugDescription: "Expected an array of byte values or a b64'<base64>' string")
+    }
+
+    override open func isEqual(to other: UriOrResource) -> Bool {
+        guard super.isEqual(to: other), let other = other as? HashedUri else { return false }
+        return hash == other.hash && url == other.url
     }
 
     override open func encode(to encoder: Encoder) throws {

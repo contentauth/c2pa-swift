@@ -15,7 +15,7 @@ import Foundation
 
 /// The value of digitalSourceType is one of the URLs specified by the International Press Telecommunications Council (IPTC) NewsCodes Digital Source Type scheme of the form http://cv.iptc.org/newscodes/digitalsourcetype/<CODE>
 /// - SeeAlso: [DigitalSourceType Reference](https://opensource.contentauthenticity.org/docs/manifest/writing/assertions-actions#digital-source-type)
-public enum DigitalSourceType: String, Codable, Sendable {
+public enum DigitalSourceType: String, Codable, Sendable, CaseIterable {
 
     /// Minor augmentation or correction by algorithm.
     case algorithmicallyEnhanced = "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicallyEnhanced"
@@ -35,6 +35,9 @@ public enum DigitalSourceType: String, Codable, Sendable {
     /// The compositing of trained algorithmic media with some other media, such as with inpainting or outpainting operations.
     case compositeWithTrainedAlgorithmicMedia = "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia"
 
+    /// The result of capturing multiple frames from a real-life source with a digital camera or recording device, then automatically merging them into a single frame using digital signal processing or non-generative AI. Includes the HDR processing common in smartphone camera apps.
+    case computationalCapture = "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture"
+
     /// Digital media representation of data via human programming or creativity.
     case dataDrivenMedia = "http://cv.iptc.org/newscodes/digitalsourcetype/dataDrivenMedia"
 
@@ -43,6 +46,9 @@ public enum DigitalSourceType: String, Codable, Sendable {
 
     /// The digital media is captured from a real-life source using a digital camera or digital recording device.
     case digitalCapture = "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+
+    /// Media whose digital content is effectively empty, such as a blank canvas or zero-length video.
+    case empty = "http://c2pa.org/digitalsourcetype/empty"
 
     /// Augmentation, correction or enhancement by one or more humans using non-generative tools. Use instead of retired minorHumanEdits code.
     case humanEdits = "http://cv.iptc.org/newscodes/digitalsourcetype/humanEdits"
@@ -58,6 +64,9 @@ public enum DigitalSourceType: String, Codable, Sendable {
 
     /// A capture of the contents of the screen of a computer or mobile device.
     case screenCapture = "http://cv.iptc.org/newscodes/digitalsourcetype/screenCapture"
+
+    /// Data that is the result of algorithmically using a model derived from sampled content and data. Differs from ``trainedAlgorithmicMedia`` in that the result is a data format (e.g. CSV, pickle), not a media type.
+    case trainedAlgorithmicData = "http://c2pa.org/digitalsourcetype/trainedAlgorithmicData"
 
     /// Digital media created algorithmically using a model derived from sampled content.
     case trainedAlgorithmicMedia = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"

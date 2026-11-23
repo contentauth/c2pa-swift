@@ -25,7 +25,6 @@ open class RegionOfInterest: Codable, Equatable {
             && lhs.metadata == rhs.metadata
             && lhs.name == rhs.name
             && lhs.region == rhs.region
-            && lhs.role == rhs.role
             && lhs.type == rhs.type
     }
 
@@ -46,9 +45,6 @@ open class RegionOfInterest: Codable, Equatable {
     /// A range describing the region of interest for the specific asset.
     open var region: [RegionRange]
 
-    /// A value from our controlled vocabulary or an entity-specific value (e.g., com.litware.coolArea) that represents the role of a region among other regions.
-    open var role: Role?
-
     /// A value from a controlled vocabulary such as ``ImageRegionType`` or an entity-specific value
     /// (e.g., com.litware.newType) that represents the type of thing(s) depicted by a region.
     open var type: String?
@@ -59,7 +55,6 @@ open class RegionOfInterest: Codable, Equatable {
     ///   - metadata: Additional information about the asset.
     ///   - name: A free-text string representing a human-readable name for the region which might be used in a user interface.
     ///   - region: A range describing the region of interest for the specific asset.
-    ///   - role: A value from our controlled vocabulary or an entity-specific value (e.g., com.litware.coolArea) that represents the role of a region among other regions.
     ///   - type: A value from a controlled vocabulary such as ``ImageRegionType`` or an entity-specific value
     /// (e.g., com.litware.newType) that represents the type of thing(s) depicted by a region.
     public init(
@@ -68,7 +63,6 @@ open class RegionOfInterest: Codable, Equatable {
         metadata: Metadata? = nil,
         name: String? = nil,
         region: [RegionRange],
-        role: Role? = nil,
         type: String? = nil
     ) {
         self.description = description
@@ -76,7 +70,6 @@ open class RegionOfInterest: Codable, Equatable {
         self.metadata = metadata
         self.name = name
         self.region = region
-        self.role = role
         self.type = type
     }
 
@@ -86,7 +79,6 @@ open class RegionOfInterest: Codable, Equatable {
     ///   - metadata: Additional information about the asset.
     ///   - name: A free-text string representing a human-readable name for the region which might be used in a user interface.
     ///   - region: A range describing the region of interest for the specific asset.
-    ///   - role: A value from our controlled vocabulary or an entity-specific value (e.g., com.litware.coolArea) that represents the role of a region among other regions.
     ///   - type: A value from the controlled vocabulary ``ImageRegionType`` that represents the type of thing(s) depicted by a region.
     public convenience init(
         description: String? = nil,
@@ -94,7 +86,6 @@ open class RegionOfInterest: Codable, Equatable {
         metadata: Metadata? = nil,
         name: String? = nil,
         region: [RegionRange],
-        role: Role? = nil,
         type: ImageRegionType
     ) {
         self.init(
@@ -103,7 +94,6 @@ open class RegionOfInterest: Codable, Equatable {
             metadata: metadata,
             name: name,
             region: region,
-            role: role,
             type: type.rawValue)
     }
 }

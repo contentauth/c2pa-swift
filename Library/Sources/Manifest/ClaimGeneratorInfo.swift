@@ -25,6 +25,7 @@ public struct ClaimGeneratorInfo: Codable, Equatable {
         case icon
         case name
         case operatingSystem = "operating_system"
+        case specVersion
         case version
     }
 
@@ -43,6 +44,9 @@ public struct ClaimGeneratorInfo: Codable, Equatable {
     /// A human readable string of the OS the claim generator is running on.
     public var operatingSystem: String?
 
+    /// The version of the C2PA specification the claim generator implements.
+    public var specVersion: String?
+
     /// A human readable string of the product’s version
     public var version: String?
 
@@ -56,25 +60,29 @@ public struct ClaimGeneratorInfo: Codable, Equatable {
     ///   - icon: Hashed URI to the icon (either embedded or remote).
     ///   - name: A human readable string naming the claim_generator. *(This is automatically evaluated by default. You should not set this yourself!)*
     ///   - operatingSystem: A human readable string of the OS the claim generator is running on. *(You should use ClaimGeneratorInfo.operatingSystem to fill this!)*
+    ///   - specVersion: The version of the C2PA specification the claim generator implements.
     ///   - version: A human readable string of the product’s version. *(This is automatically evaluated by default. You should not set this yourself!)*
     public init(
         icon: UriOrResource? = nil,
         name: String = ClaimGeneratorInfo.appName,
         operatingSystem: String? = nil,
+        specVersion: String? = nil,
         version: String? = ClaimGeneratorInfo.appVersion,
         additionalFields: [String: AnyCodable]? = nil
     ) {
         self.icon = icon
         self.name = name
         self.operatingSystem = operatingSystem
+        self.specVersion = specVersion
         self.version = version
         self.additionalFields = additionalFields
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        icon = try container.decodeIfPresent(UriOrResource.self, forKey: .icon)
+        icon = try Self.decodeIcon(from: container)
         name = try container.decode(String.self, forKey: .name)
+        specVersion = try container.decodeIfPresent(String.self, forKey: .specVersion)
         version = try container.decodeIfPresent(String.self, forKey: .version)
 
         if let value = try container.decodeIfPresent(String.self, forKey: .operatingSystem) {
@@ -93,8 +101,20 @@ public struct ClaimGeneratorInfo: Codable, Equatable {
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(operatingSystem, forKey: .operatingSystem)
+        try container.encodeIfPresent(specVersion, forKey: .specVersion)
         try container.encodeIfPresent(version, forKey: .version)
         try encoder.encodeAdditionalFields(additionalFields, excluding: Self.knownKeys)
+    }
+
+    /// An icon is a ``ResourceRef`` or a ``HashedUri``. Only a resource
+    /// reference has an identifier, so that member tells them apart.
+    private static func decodeIcon(from container: KeyedDecodingContainer<CodingKeys>) throws -> UriOrResource? {
+        guard container.contains(.icon), try !container.decodeNil(forKey: .icon) else { return nil }
+        let icon = try container.nestedContainer(keyedBy: ResourceRef.CodingKeys.self, forKey: .icon)
+        if icon.contains(.identifier) {
+            return try container.decode(ResourceRef.self, forKey: .icon)
+        }
+        return try container.decode(HashedUri.self, forKey: .icon)
     }
 
 #if os(macOS)

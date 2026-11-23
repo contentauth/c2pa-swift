@@ -21,8 +21,31 @@ public struct ValidationResults: Codable, Equatable, Sendable {
 
     public var ingredientDeltas: [IngredientDeltaValidationResult]?
 
-    public init(activeManifest: StatusCodes? = nil, ingredientDeltas: [IngredientDeltaValidationResult]? = nil) {
+    /// The version of the C2PA specification the validation followed.
+    public var specVersion: String?
+
+    /// URI of the trust list the time-stamp authority's certificate chained to.
+    public var timestampTrustListUri: String?
+
+    /// URI of the trust list the signing certificate chained to.
+    public var trustListUri: String?
+
+    /// When the validation was performed.
+    public var validationTime: String?
+
+    public init(
+        activeManifest: StatusCodes? = nil,
+        ingredientDeltas: [IngredientDeltaValidationResult]? = nil,
+        specVersion: String? = nil,
+        timestampTrustListUri: String? = nil,
+        trustListUri: String? = nil,
+        validationTime: String? = nil
+    ) {
         self.activeManifest = activeManifest
         self.ingredientDeltas = ingredientDeltas
+        self.specVersion = specVersion
+        self.timestampTrustListUri = timestampTrustListUri
+        self.trustListUri = trustListUri
+        self.validationTime = validationTime
     }
 }

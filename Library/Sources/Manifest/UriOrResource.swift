@@ -19,7 +19,16 @@ open class UriOrResource: Codable, Equatable {
     // MARK: Equatable
 
     public static func == (lhs: UriOrResource, rhs: UriOrResource) -> Bool {
-        lhs.alg == rhs.alg
+        lhs.isEqual(to: rhs)
+    }
+
+    /// Whether `other` is the same kind of reference with the same members.
+    ///
+    /// A subclass that adds members overrides this, calls `super` and
+    /// compares what it added, so `==` holds for the whole value however it
+    /// is typed at the call site.
+    open func isEqual(to other: UriOrResource) -> Bool {
+        type(of: self) == type(of: other) && alg == other.alg
     }
 
     // MARK: UriOrResource

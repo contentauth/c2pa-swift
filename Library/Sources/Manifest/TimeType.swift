@@ -15,7 +15,7 @@ import Foundation
 
 /// The type of time.
 /// - SeeAlso: [TimeType Reference](https://opensource.contentauthenticity.org/docs/manifest/json-ref/manifest-definition-schema/#timetype)
-public enum TimeType: String, Codable, Sendable {
+public enum TimeType: String, Codable, Sendable, CaseIterable {
 
     /// Times are described using Normal Play Time (npt) as described in RFC 2326.
     case npt
