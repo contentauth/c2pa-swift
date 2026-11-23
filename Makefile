@@ -477,10 +477,18 @@ docs:
 docs-versioned:
 	bash .github/scripts/generate-versioned-docs.sh
 
+.PHONY: update-schemas
+
+# Regenerate the c2pa-rs JSON schemas the schema conformance tests check against.
+# Run after changing C2PA_VERSION in Configurations/Base.xcconfig.
+update-schemas:
+	bash .github/scripts/update-schemas.sh
+
 # Help target
 help:
 	@echo "Available targets:"
 	@echo "  make docs-versioned - Build versioned DocC documentation from published releases"
+	@echo "  make update-schemas - Regenerate the c2pa-rs JSON schemas the conformance tests check against (after changing C2PA_VERSION)"
 	@echo "  make              - Build the library (default)"
 	@echo "  make lint         - Run SwiftLint on the codebase"
 	@echo "  make library      - Build multi-platform XCFramework (iOS device + simulator + Mac Catalyst + macOS)"
