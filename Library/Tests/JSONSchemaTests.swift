@@ -389,6 +389,25 @@ import Testing
         #expect(narrower.first?.contains("tsa") == true, "\(narrower)")
     }
 
+    /// A variant that carries data, a reference and a value that is not a
+    /// string are all forms a String enumeration has no case for.
+    @Test(arguments: ["Carrying", "Referring", "NumberConstant", "NumberListed", "NullInVariant"])
+    func enumerationFormThatIsNotAStringIsReported(definition: String) throws {
+        let schema = try self.schema(#"""
+            {"$defs": {
+                "Carrying": {"oneOf": [
+                    {"const": "manifest"}, {"const": "tsa"},
+                    {"type": "object", "properties": {"custom": {"type": "string"}}, "required": ["custom"]}]},
+                "Referring": {"anyOf": [{"enum": ["manifest", "tsa"]}, {"$ref": "#/$defs/Carrying"}]},
+                "NumberConstant": {"oneOf": [{"const": "manifest"}, {"const": "tsa"}, {"const": 3}]},
+                "NumberListed": {"enum": ["manifest", "tsa", 3]},
+                "NullInVariant": {"oneOf": [{"enum": ["manifest", "tsa", null]}]}}}
+            """#)
+        let found = enumerationProblems(Kind.self, matches: definition, in: schema)
+        #expect(found.count == 1, "\(found)")
+        #expect(found.first?.contains("'\(definition)'") == true, "\(found)")
+    }
+
     // MARK: - Definition coverage
 
     @Test func everyDefinitionMustBeClassified() throws {

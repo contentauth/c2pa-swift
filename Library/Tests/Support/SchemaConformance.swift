@@ -146,20 +146,34 @@ func enumerationProblems<Enumeration: RawRepresentable & CaseIterable>(
     guard let schemaDefinition = try? schema.definition(definition) else {
         return ["the schema has no definition '\(definition)'"]
     }
+    var problems: [String] = []
     var listed: Set<String> = []
     var acceptsAnyString = false
-    listed.formUnion(schemaDefinition["enum"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+    // A value or an alternative that is not a string is reported, never
+    // skipped: it is a variant the enumeration has no case for.
+    func list(_ values: [JSONValue]) {
+        for value in values {
+            if let string = value.stringValue {
+                listed.insert(string)
+            } else {
+                problems.append("the schema definition '\(definition)' lists \(value.text), which is not a string")
+            }
+        }
+    }
+    list(schemaDefinition["enum"]?.arrayValue ?? [])
     for alternative in (schemaDefinition["oneOf"] ?? schemaDefinition["anyOf"])?.arrayValue ?? [] {
-        if let value = alternative["const"]?.stringValue {
-            listed.insert(value)
+        if let value = alternative["const"] {
+            list([value])
         } else if let values = alternative["enum"]?.arrayValue {
-            listed.formUnion(values.compactMap(\.stringValue))
+            list(values)
         } else if alternative["type"] == .string("string") {
             acceptsAnyString = true
+        } else {
+            problems.append(
+                "the schema definition '\(definition)' has an alternative that is not a string value: \(alternative.text)")
         }
     }
 
-    var problems: [String] = []
     let cases = Set(type.allCases.map(\.rawValue))
     for value in listed.subtracting(cases).sorted() {
         problems.append("\(type) has no case for the schema value '\(value)'")
