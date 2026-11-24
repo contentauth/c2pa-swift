@@ -124,6 +124,27 @@ make test-library C2PA_ARCHIVE_DIR=/tmp/c2pa-archives
 or back to release mode; Xcode does not notice when only the archive contents
 change. This is also how the `track/c2pa-rs-main` branch is built in CI.
 
+### Keeping the models in step with c2pa-rs
+
+The settings and manifest types are hand-written counterparts of the JSON
+schemas c2pa-rs exports. c2pa-rs ignores keys it does not know, so a model that
+falls behind loses values without an error. Two test suites,
+`SettingsSchemaConformanceTests` and `ManifestSchemaConformanceTests`, check
+every model against a copy of those schemas in `Library/Tests/Resources`.
+
+After changing `C2PA_VERSION`, regenerate the copy and run the tests:
+
+```bash
+# Needs git, python3 and the Rust toolchain c2pa-rs asks for
+make update-schemas
+
+make test-library
+```
+
+A failure names the schema definition and the key, value or enumeration case
+that no longer matches. A definition or key that is deliberately left without a
+Swift counterpart is listed in the suite with the reason.
+
 ### Running applications
 
 ```bash

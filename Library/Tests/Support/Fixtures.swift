@@ -64,6 +64,18 @@ enum Fixtures {
 
     static func privateKeyPEM() throws -> String { try text("es256_private.key") }
 
+    /// The c2pa-rs test roots, which the test certificate chain leads to.
+    static func rootBundlePEM() throws -> String { try text("test_cert_root_bundle.pem") }
+
+    /// The signing certificate alone: the first one in the test chain.
+    static func leafCertificatePEM() throws -> String {
+        let end = "-----END CERTIFICATE-----"
+        guard let leaf = try certsPEM().components(separatedBy: end).first, !leaf.isEmpty else {
+            throw FixtureError.missing("a certificate in es256_certs.pem")
+        }
+        return leaf + end + "\n"
+    }
+
     /// An ES256 signer over the test certificate chain.
     static func signer() throws -> Signer {
         try Signer(info: signerInfo())
@@ -166,15 +178,17 @@ enum Fixtures {
         """
     }
 
-    /// Signs a fixture with `builder` and reads the signed copy back.
+    /// Signs a fixture with `builder` and reads the signed copy back. `settings`
+    /// configures the reading side only, for example its trust lists.
     static func signAndRead(
         _ builder: Builder,
         source: String = pexelsJPEG,
         format: String = "image/jpeg",
-        signer: Signer? = nil
+        signer: Signer? = nil,
+        readingWith settings: C2PASettings? = nil
     ) throws -> ManifestStore {
         let signer = try signer ?? self.signer()
-        return try signAndRead(source: source, format: format) { source, destination in
+        return try signAndRead(source: source, format: format, readingWith: settings) { source, destination in
             try builder.sign(format: format, source: source, destination: destination, signer: signer)
         }
     }
@@ -194,12 +208,14 @@ enum Fixtures {
     private static func signAndRead(
         source: String,
         format: String,
+        readingWith settings: C2PASettings? = nil,
         sign: (_ source: Stream, _ destination: Stream) throws -> Data
     ) throws -> ManifestStore {
         let output = tempURL(extension: (source as NSString).pathExtension)
         defer { try? FileManager.default.removeItem(at: output) }
         _ = try sign(stream(source), Stream(writeTo: output))
-        let reader = try Reader(format: format, stream: Stream(readFrom: output))
+        let context = try settings.map { try C2PAContext(settings: $0) } ?? C2PAContext()
+        let reader = try Reader(context: context, format: format, stream: Stream(readFrom: output))
         return try ManifestStore(json: reader.json())
     }
 

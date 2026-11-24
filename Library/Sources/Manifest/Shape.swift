@@ -36,8 +36,8 @@ public struct Shape: Codable, Equatable, Sendable {
     public var vertices: [Coordinate]?
 
     /// If the range is inside the shape.
-    /// The default value is true.
-    public var inside: Bool
+    /// A range is inside when this is absent.
+    public var inside: Bool?
 
     /// The type of unit for the shape range.
     public var unit: UnitType
@@ -48,7 +48,7 @@ public struct Shape: Codable, Equatable, Sendable {
     ///   - width: The width for rectangles or diameter for circles. This field can be ignored for polygons.
     ///   - height: The height of a rectnagle. This field can be ignored for circles and polygons.
     ///   - vertices: The vertices of the polygon. This field can be ignored for rectangles and circles.
-    ///   - inside: If the range is inside the shape. The default value is true.
+    ///   - inside: If the range is inside the shape. A range is inside when this is absent.
     ///   - unit: The type of unit for the shape range.
     public init(
         type: ShapeType,
@@ -56,7 +56,7 @@ public struct Shape: Codable, Equatable, Sendable {
         width: Double? = nil,
         height: Double? = nil,
         vertices: [Coordinate]? = nil,
-        inside: Bool = true,
+        inside: Bool? = nil,
         unit: UnitType
     ) {
         self.type = type

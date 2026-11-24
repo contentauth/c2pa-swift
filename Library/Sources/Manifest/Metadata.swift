@@ -22,6 +22,7 @@ public struct Metadata: Codable, Equatable {
     public enum CodingKeys: String, CodingKey, CaseIterable {
         case dataSource
         case dateTime
+        case localizations
         case reference
         case regionOfInterest
         case reviewRatings
@@ -31,7 +32,11 @@ public struct Metadata: Codable, Equatable {
 
     public var dataSource: DataSource?
 
-    public var dateTime: Date?
+    /// When the assertion was made, as an RFC 3339 date and time. c2pa-rs does not check the string.
+    public var dateTime: String?
+
+    /// Translations of the assertion's text. Each entry maps a field name to its text by language tag.
+    public var localizations: [[String: [String: String]]]?
 
     public var reference: HashedUri?
 
@@ -47,7 +52,8 @@ public struct Metadata: Codable, Equatable {
 
     public init(
         dataSource: DataSource? = nil,
-        dateTime: Date? = nil,
+        dateTime: String? = nil,
+        localizations: [[String: [String: String]]]? = nil,
         reference: HashedUri? = nil,
         regionOfInterest: RegionOfInterest? = nil,
         reviewRatings: [ReviewRating]? = nil,
@@ -55,6 +61,7 @@ public struct Metadata: Codable, Equatable {
     ) {
         self.dataSource = dataSource
         self.dateTime = dateTime
+        self.localizations = localizations
         self.reference = reference
         self.regionOfInterest = regionOfInterest
         self.reviewRatings = reviewRatings
@@ -64,7 +71,8 @@ public struct Metadata: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         dataSource = try container.decodeIfPresent(DataSource.self, forKey: .dataSource)
-        dateTime = try container.decodeIfPresent(Date.self, forKey: .dateTime)
+        dateTime = try container.decodeIfPresent(String.self, forKey: .dateTime)
+        localizations = try container.decodeIfPresent([[String: [String: String]]].self, forKey: .localizations)
         reference = try container.decodeIfPresent(HashedUri.self, forKey: .reference)
         regionOfInterest = try container.decodeIfPresent(RegionOfInterest.self, forKey: .regionOfInterest)
         reviewRatings = try container.decodeIfPresent([ReviewRating].self, forKey: .reviewRatings)
@@ -75,6 +83,7 @@ public struct Metadata: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(dataSource, forKey: .dataSource)
         try container.encodeIfPresent(dateTime, forKey: .dateTime)
+        try container.encodeIfPresent(localizations, forKey: .localizations)
         try container.encodeIfPresent(reference, forKey: .reference)
         try container.encodeIfPresent(regionOfInterest, forKey: .regionOfInterest)
         try container.encodeIfPresent(reviewRatings, forKey: .reviewRatings)

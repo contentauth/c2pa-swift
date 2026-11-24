@@ -65,6 +65,14 @@ open class ResourceRef: UriOrResource {
         try super.init(from: decoder)
     }
 
+    override open func isEqual(to other: UriOrResource) -> Bool {
+        guard super.isEqual(to: other), let other = other as? ResourceRef else { return false }
+        return dataTypes == other.dataTypes
+            && format == other.format
+            && hash == other.hash
+            && identifier == other.identifier
+    }
+
     override open func encode(to encoder: Encoder) throws {
         try super.encode(to: encoder)
 

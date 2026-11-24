@@ -88,12 +88,16 @@ extension DigitalSourceType {
             CompositeSynthetic
         case .compositeWithTrainedAlgorithmicMedia:
             CompositeWithTrainedAlgorithmicMedia
+        case .computationalCapture:
+            ComputationalCapture
         case .dataDrivenMedia:
             DataDrivenMedia
         case .digitalCreation:
             DigitalCreation
         case .digitalCapture:
             DigitalCapture
+        case .empty:
+            Empty
         case .humanEdits:
             HumanEdits
         case .negativeFilm:
@@ -104,6 +108,8 @@ extension DigitalSourceType {
             Print
         case .screenCapture:
             ScreenCapture
+        case .trainedAlgorithmicData:
+            TrainedAlgorithmicData
         case .trainedAlgorithmicMedia:
             TrainedAlgorithmicMedia
         case .virtualRecording:

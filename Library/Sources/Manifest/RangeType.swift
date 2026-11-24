@@ -15,7 +15,7 @@ import Foundation
 
 /// The type of range for the region of interest.
 /// - SeeAlso: [RangeType Reference](https://opensource.contentauthenticity.org/docs/manifest/json-ref/manifest-definition-schema/#rangetype)
-public enum RangeType: String, Codable, Sendable {
+public enum RangeType: String, Codable, Sendable, CaseIterable {
 
     /// A spatial range. See ``Shape`` for more details.
     case spatial

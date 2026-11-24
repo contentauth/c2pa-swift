@@ -21,7 +21,7 @@ import Testing
 
     @Test func minimal() throws {
         let manifest = ManifestDefinition(claimGeneratorInfo: [], title: "test")
-        #expect(manifest.claimVersion == 2)
+        #expect(manifest.claimVersion == nil, "c2pa-rs treats an absent claim version as 2")
         #expect(manifest.format == "application/octet-stream")
         #expect(manifest.title == "test")
         try expectRoundTrip(manifest)
@@ -78,6 +78,157 @@ import Testing
         #expect(UriOrResource(alg: "foo") == UriOrResource(alg: "foo"))
     }
 
+    /// Equality has to look at what each kind of reference holds, or any two
+    /// references with the same algorithm compare equal.
+    @Test func referenceEquality() {
+        let resource = ResourceRef(format: "image/jpeg", identifier: "a.jpg")
+        #expect(resource == ResourceRef(format: "image/jpeg", identifier: "a.jpg"))
+        #expect(resource != ResourceRef(format: "image/jpeg", identifier: "b.jpg"))
+        #expect(resource != ResourceRef(format: "image/png", identifier: "a.jpg"))
+        #expect(resource != ResourceRef(format: "image/jpeg", hash: "h", identifier: "a.jpg"))
+        #expect(resource != ResourceRef(dataTypes: [AssetType(type: "t")], format: "image/jpeg", identifier: "a.jpg"))
+        #expect(resource != ResourceRef(alg: "sha256", format: "image/jpeg", identifier: "a.jpg"))
+
+        let hashed = HashedUri(hash: [1, 2], url: "self#jumbf=a")
+        #expect(hashed == HashedUri(hash: [1, 2], url: "self#jumbf=a"))
+        #expect(hashed != HashedUri(hash: [1, 3], url: "self#jumbf=a"))
+        #expect(hashed != HashedUri(hash: [1, 2], url: "self#jumbf=b"))
+        #expect(hashed != HashedUri(alg: "sha256", hash: [1, 2], url: "self#jumbf=a"))
+
+        // Through the base type too, which is how ClaimGeneratorInfo holds an icon.
+        let asBase: [UriOrResource] = [resource, hashed, UriOrResource()]
+        for (left, leftValue) in asBase.enumerated() {
+            for (right, rightValue) in asBase.enumerated() {
+                #expect((leftValue == rightValue) == (left == right), "\(left) against \(right)")
+            }
+        }
+    }
+
+    /// c2pa-rs takes hash bytes as an array of numbers and reports them as
+    /// b64'<base64>'. A plain string in that place means the bytes of the
+    /// string itself, so it is never written and never accepted.
+    @Test func hashedUriHashForms() throws {
+        func decode(_ hash: String) throws -> HashedUri {
+            try JSONDecoder().decode(HashedUri.self, from: Data(#"{"url":"self#jumbf=a","hash":\#(hash)}"#.utf8))
+        }
+        #expect(try decode("[96, 128]").hash == [96, 128])
+        #expect(try decode(#""b64'YIA='""#).hash == [96, 128])
+        #expect(try decode(#""b64''""#).hash == [])
+        #expect(try JSONValue(encoding: HashedUri(hash: [96, 128], url: "self#jumbf=a"))["hash"] == .array([.number(96), .number(128)]))
+
+        for rejected in [#""YIA=""#, #""b64'!'""#, #""b64'YIA=""#, "[256]", "[-1]", "[1.5]", "null", "{}"] {
+            #expect(throws: DecodingError.self, "hash \(rejected)") { try decode(rejected) }
+        }
+    }
+
+    /// A status code this library does not list has to survive: the set is
+    /// open, and c2pa-rs adds to it between releases.
+    @Test func unlistedStatusCode() throws {
+        let status = try JSONDecoder().decode(ValidationStatus.self, from: Data(#"{"code":"vendor.custom"}"#.utf8))
+        #expect(status.code == "vendor.custom")
+        #expect(status.statusCode == nil)
+        #expect(try JSONValue(encoding: status) == .object(["code": .string("vendor.custom")]))
+
+        let listed = try JSONDecoder().decode(
+            ValidationStatus.self, from: Data(#"{"code":"cawg.identity.well-formed"}"#.utf8))
+        #expect(listed.statusCode == .cawgIdentityWellFormed)
+        #expect(ValidationStatus(code: .claimSignatureValidated).code == "claimSignature.validated")
+    }
+
+    @Test func statusCodesAreUnique() {
+        #expect(ValidationStatusCode.allCases.count == 140)
+        #expect(Set(ValidationStatusCode.allCases.map(\.rawValue)).count == ValidationStatusCode.allCases.count)
+    }
+
+    /// The codes c2pa-rs reports that were missing while the enum was closed.
+    @Test(arguments: [
+        "assertion.metadata.disallowed", "assertion.required.missing", "claim.required.missing",
+        "manifest.unknownProvenance", "manifest.unreferenced",
+        "cawg.ica.credential_valid", "cawg.ica.did_unavailable", "cawg.ica.invalid_alg",
+        "cawg.ica.invalid_content_type", "cawg.ica.invalid_cose_sign1", "cawg.ica.invalid_did_document",
+        "cawg.ica.invalid_issuer", "cawg.ica.invalid_verifiable_credential", "cawg.ica.signature_mismatch",
+        "cawg.ica.signer_payload.mismatch", "cawg.ica.time_stamp.invalid", "cawg.ica.time_stamp.validated",
+        "cawg.ica.untrusted_issuer", "cawg.ica.valid_from.invalid", "cawg.ica.valid_from.missing",
+        "cawg.ica.valid_until.invalid", "cawg.identity.assertion.duplicate", "cawg.identity.assertion.mismatch",
+        "cawg.identity.cbor.invalid", "cawg.identity.hard_binding_missing", "cawg.identity.pad.invalid",
+        "cawg.identity.sig_type.unknown", "cawg.identity.well-formed", "cawg.x509.algorithm.unsupported",
+        "cawg.x509.credential.invalid", "cawg.x509.credential.trusted", "cawg.x509.credential.untrusted",
+        "cawg.x509.signature.mismatch", "cawg.x509.signature.outside_validity", "cawg.x509.signature.validated"
+    ])
+    func upstreamStatusCodeIsListed(code: String) {
+        #expect(ValidationStatusCode(rawValue: code) != nil)
+    }
+
+    /// c2pa-rs requires nothing in a manifest definition, so nothing may be
+    /// required to decode one. Keys this model does not know are ignored.
+    @Test(arguments: ["{}", #"{"intent":"edit","no_embed":true,"timestamp_manifest_labels":[]}"#])
+    func minimalDefinitionDecodes(json: String) throws {
+        let manifest = try ManifestDefinition.fromJSON(json)
+        #expect(manifest.assertions.isEmpty)
+        #expect(manifest.claimGeneratorInfo.isEmpty)
+        #expect(manifest.ingredients.isEmpty)
+        #expect(manifest.format == "application/octet-stream")
+        #expect(manifest.title == nil)
+        #expect(manifest.claimVersion == nil)
+        #expect(manifest.hashAlg == nil)
+    }
+
+    @Test func generatorIconVariants() throws {
+        func icon(_ json: String) throws -> UriOrResource? {
+            try JSONDecoder().decode(ClaimGeneratorInfo.self, from: Data(#"{"name":"App","icon":\#(json)}"#.utf8)).icon
+        }
+        let resource = try #require(try icon(#"{"format":"image/png","identifier":"icon.png"}"#) as? ResourceRef)
+        #expect(resource.format == "image/png" && resource.identifier == "icon.png")
+
+        let hashed = try #require(try icon(#"{"url":"self#jumbf=icon","hash":"b64'YIA='","alg":"sha256"}"#) as? HashedUri)
+        #expect(hashed.url == "self#jumbf=icon" && hashed.hash == [96, 128] && hashed.alg == "sha256")
+
+        #expect(try icon("null") == nil)
+        // Neither a resource reference nor a hashed URI.
+        #expect(throws: DecodingError.self) { try icon(#"{"alg":"sha256"}"#) }
+    }
+
+    @Test func metadataDateTimeIsAString() throws {
+        let metadata = Metadata(dateTime: "2026-01-02T03:04:05Z")
+        #expect(try JSONValue(encoding: metadata) == .object(["dateTime": .string("2026-01-02T03:04:05Z")]))
+        // c2pa-rs does not check the string, so neither may decoding.
+        let odd = try JSONDecoder().decode(Metadata.self, from: Data(#"{"dateTime":"yesterday"}"#.utf8))
+        #expect(odd.dateTime == "yesterday")
+        #expect(odd.additionalFields == nil)
+    }
+
+    @Test func metadataLocalizationsAreTyped() throws {
+        let json = #"{"localizations":[{"dc:title":{"en-US":"Five Cats"}}]}"#
+        let metadata = try JSONDecoder().decode(Metadata.self, from: Data(json.utf8))
+        #expect(metadata.localizations == [["dc:title": ["en-US": "Five Cats"]]])
+        #expect(metadata.additionalFields == nil, "localizations is modelled, not an unknown field")
+    }
+
+    @Test func generatorSpecVersionIsTyped() throws {
+        let info = try JSONDecoder().decode(
+            ClaimGeneratorInfo.self, from: Data(#"{"name":"App","specVersion":"2.4.0"}"#.utf8))
+        #expect(info.specVersion == "2.4.0")
+        #expect(info.additionalFields == nil, "specVersion is modelled, not an unknown field")
+    }
+
+    @Test func shapeInsideIsOptional() throws {
+        let json = #"{"type":"rectangle","unit":"pixel","origin":{"x":0,"y":0}}"#
+        let shape = try JSONDecoder().decode(Shape.self, from: Data(json.utf8))
+        #expect(shape.inside == nil)
+        #expect(try JSONValue(encoding: shape)["inside"] == nil)
+        #expect(Shape(type: .rectangle, origin: Coordinate(x: 0, y: 0), unit: .pixel).inside == nil)
+    }
+
+    @Test func digitalSourceTypesAddedUpstream() {
+        #expect(DigitalSourceType.empty.rawValue == "http://c2pa.org/digitalsourcetype/empty")
+        #expect(
+            DigitalSourceType.trainedAlgorithmicData.rawValue
+                == "http://c2pa.org/digitalsourcetype/trainedAlgorithmicData")
+        #expect(
+            DigitalSourceType.computationalCapture.rawValue
+                == "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture")
+    }
+
     @Test func massInit() {
         #expect(Ingredient().title == nil)
 
@@ -85,7 +236,7 @@ import Testing
         #expect(statusCodes.failure.isEmpty && statusCodes.informational.isEmpty && statusCodes.success.isEmpty)
 
         #expect(Metadata().dateTime == nil)
-        #expect(ValidationStatus(code: .algorithmUnsupported).code == .algorithmUnsupported)
+        #expect(ValidationStatus(code: .algorithmUnsupported).statusCode == .algorithmUnsupported)
 
         let time = Time()
         #expect(time.start == nil && time.end == nil)
@@ -196,100 +347,43 @@ import Testing
         #expect(decoded.softwareAgentString == "TestApp")
     }
 
-    /// One model's encoded form paired with the wire keys c2pa-rs expects from it.
-    struct WireKeyCheck: CustomTestStringConvertible, Sendable {
-        let model: String
-        let encoded: Data
-        let expected: [String]
-        var testDescription: String { model }
+    /// No c2pa-rs schema describes an action: assertion data is any JSON there.
+    /// The reference is the Action struct in sdk/src/assertions/actions.rs,
+    /// whose ten members these are.
+    @Test func actionEncodesTheUpstreamMembers() throws {
+        let action = Action(
+            action: "c2pa.edited",
+            digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
+            softwareAgent: "TestApp",
+            parameters: ["ingredientIds": AnyCodable(["xmp.iid:1"])],
+            when: "2026-03-12T10:00:00Z",
+            changes: [RegionOfInterest(region: [RegionRange(type: .temporal)])],
+            related: [Action(action: "c2pa.cropped")],
+            reason: "c2pa.PII.present",
+            softwareAgentIndex: 0,
+            description: "Cropped and retouched")
+        let encoded = try #require(try JSONValue(encoding: action).objectValue)
+        #expect(
+            Set(encoded.keys) == [
+                "action", "when", "softwareAgent", "softwareAgentIndex", "changes", "parameters",
+                "digitalSourceType", "related", "reason", "description"
+            ])
+        #expect(try JSONDecoder().decode(Action.self, from: JSONEncoder().encode(action)) == action)
     }
 
-    /// The wire names c2pa-rs reads and writes, verified against its serde
-    /// attributes. Manifest assertions carry explicit camelCase renames, while
-    /// other structs keep Rust's snake_case default, so these are checked rather
-    /// than inferred.
-    static func wireKeyChecks() throws -> [WireKeyCheck] {
-        let hashedUri = HashedUri(hash: [0x01, 0x02], url: "self#jumbf=c2pa.assertions/c2pa.actions")
-        let statusCodes = StatusCodes(failure: [], informational: [], success: [])
-        let encoder = JSONEncoder()
-        return [
-            WireKeyCheck(
-                model: "Action",
-                encoded: try encoder.encode(
-                    Action(
-                        action: "c2pa.created",
-                        digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
-                        softwareAgent: "TestApp")),
-                expected: ["digitalSourceType", "softwareAgent"]),
-            WireKeyCheck(
-                model: "Ingredient",
-                encoded: try encoder.encode(
-                    Ingredient(
-                        activeManifest: "urn:c2pa:test",
-                        dataTypes: [],
-                        documentId: "doc-1",
-                        informationalUri: "https://example.org/info",
-                        instanceId: "instance-1",
-                        validationResults: ValidationResults(activeManifest: statusCodes),
-                        validationStatus: [])),
-                expected: [
-                    "active_manifest", "data_types", "document_id", "informational_URI",
-                    "instance_id", "validation_results", "validation_status"
-                ]),
-            WireKeyCheck(
-                model: "ValidationResults",
-                encoded: try encoder.encode(ValidationResults(activeManifest: statusCodes, ingredientDeltas: [])),
-                expected: ["activeManifest", "ingredientDeltas"]),
-            WireKeyCheck(
-                model: "IngredientDeltaValidationResult",
-                encoded: try encoder.encode(
-                    IngredientDeltaValidationResult(
-                        ingredientAssertionUri: "self#jumbf=c2pa.assertions/c2pa.ingredient",
-                        validationDeltas: statusCodes)),
-                expected: ["ingredientAssertionURI", "validationDeltas"]),
-            WireKeyCheck(
-                model: "Metadata",
-                encoded: try encoder.encode(
-                    Metadata(
-                        dataSource: DataSource(type: "signer"),
-                        dateTime: Date(timeIntervalSince1970: 0),
-                        reference: hashedUri,
-                        reviewRatings: [ReviewRating(explanation: "ok", value: 5)])),
-                expected: ["dataSource", "dateTime", "reviewRatings"]),
-            WireKeyCheck(
-                model: "ClaimGeneratorInfo",
-                encoded: try encoder.encode(ClaimGeneratorInfo(name: "TestApp", operatingSystem: "iOS")),
-                expected: ["operating_system"]),
-            WireKeyCheck(
-                model: "ResourceRef",
-                encoded: try encoder.encode(ResourceRef(dataTypes: [], format: "image/jpeg", identifier: "self#jumbf=c2pa")),
-                expected: ["data_types"]),
-            WireKeyCheck(
-                model: "ManifestDefinition",
-                encoded: try encoder.encode(
-                    ManifestDefinition(
-                        claimGeneratorInfo: [ClaimGeneratorInfo(name: "TestApp")],
-                        instanceId: "instance-1",
-                        title: "wire-key drift check")),
-                expected: ["claim_generator_info", "claim_version", "instance_id"])
-        ]
+    /// c2pa-rs refuses to sign a manifest whose related entries are not actions.
+    @Test func relatedActionsNest() throws {
+        let action = Action(action: "c2pa.edited", related: [Action(action: "c2pa.cropped", description: "tighter")])
+        let related = try #require(try JSONValue(encoding: action)["related"]?.arrayValue)
+        #expect(related == [.object(["action": .string("c2pa.cropped"), "description": .string("tighter")])])
+        #expect(try JSONDecoder().decode(Action.self, from: JSONEncoder().encode(action)) == action)
+        #expect(action != Action(action: "c2pa.edited", related: [Action(action: "c2pa.cropped")]))
     }
 
-    /// Reports a key whose spelling drifted (same name modulo case and
-    /// underscores) separately from one that is missing outright: c2pa-rs defines
-    /// no aliases, so a drifted key is silently dropped rather than rejected.
-    @Test(arguments: try wireKeyChecks())
-    func manifestWireKeyDrift(check: WireKeyCheck) throws {
-        let object = try JSONSerialization.jsonObject(with: check.encoded)
-        let keys = Set(try #require(object as? [String: Any], "encoded JSON is not an object").keys)
-        func normalized(_ key: String) -> String { key.replacingOccurrences(of: "_", with: "").lowercased() }
-        for key in check.expected where !keys.contains(key) {
-            if let drifted = keys.first(where: { normalized($0) == normalized(key) }) {
-                Issue.record("expected key '\(key)' but found '\(drifted)'")
-            } else {
-                Issue.record("expected key '\(key)' is absent (encoded: \(keys.sorted()))")
-            }
-        }
+    @Test func actionEqualityCoversEveryMember() {
+        let action = Action(action: "c2pa.edited")
+        #expect(action != Action(action: "c2pa.edited", softwareAgentIndex: 1))
+        #expect(action != Action(action: "c2pa.edited", description: "d"))
     }
 
     // MARK: - Unknown fields
@@ -367,8 +461,12 @@ import Testing
         #expect(!ManifestValidator.validate(namespaced).warnings.contains { $0.contains("namespaced format") })
     }
 
-    @Test func validatorEmptyTitle() {
-        let result = ManifestValidator.validate(ManifestDefinition(claimGeneratorInfo: [ClaimGeneratorInfo(name: "test")], title: ""))
+    /// A definition read from JSON may have no title; one still cannot be built from it.
+    @Test(arguments: ["", nil] as [String?])
+    func validatorEmptyTitle(title: String?) {
+        var manifest = ManifestDefinition(claimGeneratorInfo: [ClaimGeneratorInfo(name: "test")], title: "test")
+        manifest.title = title
+        let result = ManifestValidator.validate(manifest)
         #expect(result.errors.contains { $0.contains("title") }, "errors: \(result.errors)")
     }
 
@@ -381,6 +479,13 @@ import Testing
         let result = ManifestValidator.validate(
             ManifestDefinition(claimGeneratorInfo: [ClaimGeneratorInfo(name: "test")], claimVersion: 1, title: "test"))
         #expect(result.warnings.contains { $0.contains("outdated") }, "warnings: \(result.warnings)")
+    }
+
+    /// An absent claim version means the current one, so there is nothing to warn about.
+    @Test func validatorAcceptsAbsentClaimVersion() {
+        let result = ManifestValidator.validate(
+            ManifestDefinition(claimGeneratorInfo: [ClaimGeneratorInfo(name: "test")], title: "test"))
+        #expect(!result.warnings.contains { $0.contains("outdated") }, "warnings: \(result.warnings)")
     }
 
     @Test func validatorDeprecatedAssertionLabels() {
@@ -504,6 +609,39 @@ import Testing
             claimGeneratorInfo: ClaimGeneratorInfo(name: "TestApp", version: "1.0"),
             digitalSourceType: .digitalCapture)
         #expect(try Fixtures.signAndRead(Builder(manifest: manifest)).actions() == ["c2pa.created"])
+    }
+
+    /// A manifest with an action that relates to another action, and an
+    /// ingredient whose metadata carries a date.
+    static func nestedRelatedManifest() -> ManifestDefinition {
+        let component = Ingredient(
+            format: "image/jpeg", metadata: Metadata(dateTime: "2026-01-02T03:04:05Z"), relationship: .componentOf,
+            title: "component.jpg")
+        return ManifestDefinition(
+            assertions: [
+                .actions(actions: [
+                    Action(action: .created, digitalSourceType: .digitalCapture),
+                    Action(
+                        action: PredefinedAction.edited.rawValue,
+                        related: [Action(action: PredefinedAction.cropped.rawValue)], description: "Cropped")
+                ])
+            ],
+            claimGeneratorInfo: [ClaimGeneratorInfo(name: "TestApp", version: "1.0")],
+            ingredients: [component],
+            title: "test.jpg")
+    }
+
+    /// Both shapes were refused by c2pa-rs when signing: related entries that
+    /// were strings, and a metadata date that was a number.
+    @Test func signsNestedRelatedActionAndMetadataDate() throws {
+        let manifest = Self.nestedRelatedManifest()
+        let store = try Fixtures.signAndRead(Builder(manifest: manifest))
+        let ingredient = try #require(try store.ingredients().first)
+        #expect((ingredient["metadata"] as? [String: Any])?["dateTime"] as? String == "2026-01-02T03:04:05Z")
+        #expect(try store.actions() == ["c2pa.created", "c2pa.edited"])
+        let edited = try #require(try store.actionEntries().last)
+        #expect((edited["related"] as? [[String: Any]])?.first?["action"] as? String == "c2pa.cropped")
+        #expect(edited["description"] as? String == "Cropped")
     }
 
     @Test func builderInitManifestInvalid() throws {

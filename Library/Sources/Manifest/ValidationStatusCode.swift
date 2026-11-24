@@ -13,13 +13,18 @@
 
 import Foundation
 
-/// Validation status codes as defined in the C2PA 2.3 specification (Section 15).
+/// Validation status codes that c2pa-rs reports, as defined by the C2PA 2.3 specification
+/// (Section 15) and the CAWG identity assertion specification.
 ///
 /// These codes indicate the result of various validation checks performed on manifests.
 /// Codes are organized into three categories: success, informational, and failure.
 ///
+/// The set of codes is open: a newer SDK or another validator can report a code that is
+/// not listed here. ``ValidationStatus/code`` therefore holds the code as a string, and
+/// ``ValidationStatus/statusCode`` resolves it to a case of this enum when there is one.
+///
 /// - SeeAlso: [C2PA Specification: returning_validation_results](https://spec.c2pa.org/specifications/specifications/2.3/specs/C2PA_Specification.html#_returning_validation_results)
-public enum ValidationStatusCode: String, Codable, Sendable {
+public enum ValidationStatusCode: String, CaseIterable, Sendable {
 
     // MARK: - Success Codes
 
@@ -71,6 +76,21 @@ public enum ValidationStatusCode: String, Codable, Sendable {
     /// The time-stamp has been validated.
     case timeStampValidated = "timeStamp.validated"
 
+    /// A CAWG identity claims aggregation credential was validated.
+    case cawgIcaCredentialValid = "cawg.ica.credential_valid"
+
+    /// The CAWG identity claims aggregation timestamp was validated.
+    case cawgIcaTimeStampValidated = "cawg.ica.time_stamp.validated"
+
+    /// The CAWG identity assertion is well formed.
+    case cawgIdentityWellFormed = "cawg.identity.well-formed"
+
+    /// A chain of trust from the CAWG identity assertion's X.509 signing certificate to a trust anchor was verified.
+    case cawgX509CredentialTrusted = "cawg.x509.credential.trusted"
+
+    /// The signature over a CAWG identity assertion using an X.509 credential was validated against the signing certificate.
+    case cawgX509SignatureValidated = "cawg.x509.signature.validated"
+
     // MARK: - Informational Codes
 
     /// The algorithm used is deprecated.
@@ -117,6 +137,12 @@ public enum ValidationStatusCode: String, Codable, Sendable {
 
     /// The time-stamp credential is not listed on the validator's trust list.
     case timeStampUntrusted = "timeStamp.untrusted"
+
+    /// The issuer of a CAWG identity claims aggregation credential is not on the validator's list of trusted issuers.
+    case cawgIcaUntrustedIssuer = "cawg.ica.untrusted_issuer"
+
+    /// The asset manifest cannot be interpreted by this version of the SDK.
+    case manifestUnknownProvenance = "manifest.unknownProvenance"
 
     // MARK: - Failure Codes
 
@@ -228,6 +254,9 @@ public enum ValidationStatusCode: String, Codable, Sendable {
     /// An assertion listed in the ingredient's claim is missing from the ingredient's manifest.
     case assertionMissing = "assertion.missing"
 
+    /// The C2PA metadata assertion contains a field that is not allowed.
+    case assertionMetadataDisallowed = "assertion.metadata.disallowed"
+
     /// The multi-asset hash is malformed.
     case assertionMultiAssetHashMalformed = "assertion.multiAssetHash.malformed"
 
@@ -239,6 +268,9 @@ public enum ValidationStatusCode: String, Codable, Sendable {
 
     /// Multiple hard bindings were found.
     case assertionMultipleHardBindings = "assertion.multipleHardBindings"
+
+    /// A required field is not present in an assertion.
+    case assertionRequiredMissing = "assertion.required.missing"
 
     /// An assertion was declared as redacted in the ingredient's claim but is still present in the ingredient's manifest.
     case assertionNotRedacted = "assertion.notRedacted"
@@ -269,6 +301,9 @@ public enum ValidationStatusCode: String, Codable, Sendable {
 
     /// More than one claim box is present in the manifest.
     case claimMultiple = "claim.multiple"
+
+    /// A required field is not present in the claim.
+    case claimRequiredMissing = "claim.required.missing"
 
     /// The claim signature referenced in the ingredient's claim failed to validate.
     case claimSignatureMismatch = "claimSignature.mismatch"
@@ -321,6 +356,9 @@ public enum ValidationStatusCode: String, Codable, Sendable {
     /// The manifest timestamp has wrong parents.
     case manifestTimestampWrongParents = "manifest.timestamp.wrongParents"
 
+    /// The manifest is not referenced via an ingredient assertion.
+    case manifestUnreferenced = "manifest.unreferenced"
+
     /// The manifest is an update manifest, but it contains hard binding or actions assertions.
     case manifestUpdateInvalid = "manifest.update.invalid"
 
@@ -341,4 +379,78 @@ public enum ValidationStatusCode: String, Codable, Sendable {
 
     /// The signing credential is not listed on the validator's trust list.
     case signingCredentialUntrusted = "signingCredential.untrusted"
+
+    // CAWG identity assertion failures
+
+    /// The DID document for a CAWG identity claims aggregation credential is unavailable.
+    case cawgIcaDidUnavailable = "cawg.ica.did_unavailable"
+
+    /// A CAWG identity claims aggregation credential uses an invalid algorithm.
+    case cawgIcaInvalidAlg = "cawg.ica.invalid_alg"
+
+    /// A CAWG identity claims aggregation credential has an invalid content type.
+    case cawgIcaInvalidContentType = "cawg.ica.invalid_content_type"
+
+    /// A CAWG identity claims aggregation COSE_Sign1 structure is invalid.
+    case cawgIcaInvalidCoseSign1 = "cawg.ica.invalid_cose_sign1"
+
+    /// The DID document for a CAWG identity claims aggregation credential is invalid.
+    case cawgIcaInvalidDidDocument = "cawg.ica.invalid_did_document"
+
+    /// A CAWG identity claims aggregation issuer is invalid.
+    case cawgIcaInvalidIssuer = "cawg.ica.invalid_issuer"
+
+    /// A CAWG identity claims aggregation verifiable credential is invalid.
+    case cawgIcaInvalidVerifiableCredential = "cawg.ica.invalid_verifiable_credential"
+
+    /// The CAWG identity claims aggregation signature does not match.
+    case cawgIcaSignatureMismatch = "cawg.ica.signature_mismatch"
+
+    /// A CAWG identity claims aggregation signer payload does not match the asset.
+    case cawgIcaSignerPayloadMismatch = "cawg.ica.signer_payload.mismatch"
+
+    /// The CAWG identity claims aggregation timestamp is invalid.
+    case cawgIcaTimeStampInvalid = "cawg.ica.time_stamp.invalid"
+
+    /// The valid-from time in a CAWG identity claims aggregation credential is invalid.
+    case cawgIcaValidFromInvalid = "cawg.ica.valid_from.invalid"
+
+    /// The valid-from time is missing from a CAWG identity claims aggregation credential.
+    case cawgIcaValidFromMissing = "cawg.ica.valid_from.missing"
+
+    /// The valid-until time in a CAWG identity claims aggregation credential is invalid.
+    case cawgIcaValidUntilInvalid = "cawg.ica.valid_until.invalid"
+
+    /// A CAWG identity assertion references the same assertion more than once.
+    case cawgIdentityAssertionDuplicate = "cawg.identity.assertion.duplicate"
+
+    /// A referenced CAWG identity assertion is missing or has a mismatched hash.
+    case cawgIdentityAssertionMismatch = "cawg.identity.assertion.mismatch"
+
+    /// The CAWG identity assertion CBOR is not valid.
+    case cawgIdentityCborInvalid = "cawg.identity.cbor.invalid"
+
+    /// A CAWG identity assertion does not reference a hard-binding assertion.
+    case cawgIdentityHardBindingMissing = "cawg.identity.hard_binding_missing"
+
+    /// The CAWG identity assertion padding is invalid.
+    case cawgIdentityPadInvalid = "cawg.identity.pad.invalid"
+
+    /// The CAWG identity assertion signature type is unknown.
+    case cawgIdentitySigTypeUnknown = "cawg.identity.sig_type.unknown"
+
+    /// The algorithm that signed a CAWG identity assertion with an X.509 credential is neither allowed nor deprecated.
+    case cawgX509AlgorithmUnsupported = "cawg.x509.algorithm.unsupported"
+
+    /// The X.509 certificate that signed a CAWG identity assertion, or its chain, does not meet the certificate profile.
+    case cawgX509CredentialInvalid = "cawg.x509.credential.invalid"
+
+    /// No chain of trust leads from the X.509 certificate that signed a CAWG identity assertion to a configured trust anchor.
+    case cawgX509CredentialUntrusted = "cawg.x509.credential.untrusted"
+
+    /// The signature over a CAWG identity assertion using an X.509 credential could not be validated against the signing certificate.
+    case cawgX509SignatureMismatch = "cawg.x509.signature.mismatch"
+
+    /// The time of signing falls outside the validity period of the X.509 certificate that signed a CAWG identity assertion.
+    case cawgX509SignatureOutsideValidity = "cawg.x509.signature.outside_validity"
 }
